@@ -9,6 +9,30 @@
 
 ---
 
+## 🔄 Fork 更新说明（dydch/stock-analysis）
+
+本仓库 fork 自 [mingli30119/stock-analysis](https://github.com/mingli30119/stock-analysis)，在原始项目基础上进行了以下更新：
+
+### 新增功能
+- ✅ **混合数据源版** (`stock_full_report_hybrid.py`) — 在原 akshare 基础上增加 **BaoStock** 作为补充数据源，解决部分数据获取失败的问题
+- ✅ 同时支持合并报表数据获取，提升财务数据准确性
+
+### 使用方式
+
+```bash
+# 混合数据源版（推荐）
+python stock_full_report_hybrid.py 600519
+
+# 原版（纯akshare）
+python stock_full_report.py 600519
+```
+
+---
+
+> **原版说明如下** 👇
+
+---
+
 ## ✨ 功能特性
 
 - ✅ **自动数据获取** - 基于akshare获取股票数据（K线、财务、新闻等）
