@@ -22,8 +22,6 @@ from __future__ import annotations
 import re, json, os, sys, argparse, datetime as dt
 from typing import Any
 
-# Static chart rendering (no JS dependency)
-import stock_charts as sc
 
 
 # ════════════════════ HTML 模板（完整版）════════════════════
@@ -34,7 +32,6 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>个股研究 - {STOCK_NAME}</title>
-<script src="echarts.min.js"></script>
 <style>
 :root {{
   --bg: #0a0e17; --card: #141b2d; --border: #2a3550;
@@ -42,7 +39,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   --hl: #3b82f6; --hl2: #60a5fa; --up: #ef4444; --down: #22c55e;
   --warn: #f59e0b; --purple: #8b5cf6; --orange: #f97316;
 }}
-#theme-switch:checked ~ .page-wrapper {{
+.light {{
   --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0;
   --text: #1e293b; --text2: #64748b; --text3: #94a3b8;
   --hl: #2563eb; --hl2: #3b82f6; --up: #dc2626; --down: #16a34a;
@@ -51,11 +48,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 * {{ margin:0; padding:0; box-sizing:border-box; }}
 body {{
   font-family: -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
-  margin:0; padding:0;
-}}
-.page-wrapper {{
   background: var(--bg); color: var(--text); line-height: 1.6;
-  min-height: 100vh;
   transition: background .3s, color .3s;
 }}
 
@@ -178,9 +171,8 @@ body {{
 .chart-box {{ width:100%; height:380px; }}
 .chart-box.tall {{ height:460px; }}
 .chart-img {{ max-width:100%; height:auto; border-radius:6px; }}
-#theme-switch:checked ~ * .theme-dark {{ display:none !important; }}
-#theme-switch:checked ~ * .theme-light {{ display:block !important; }}
-
+body.light .theme-dark {{ display:none !important; }}
+body.light .theme-light {{ display:block !important; }}
 
 /* ── 表格 ── */
 .table-wrap {{ overflow-x:auto; }}
@@ -296,8 +288,6 @@ td:first-child, th:first-child {{ text-align:left; }}
 </style>
 </head>
 <body>
-<input type="checkbox" id="theme-switch" hidden>
-<div class="page-wrapper">
 
 <!-- ==================== 导航栏（含8步）==================== -->
 <div class="topbar">
@@ -313,7 +303,7 @@ td:first-child, th:first-child {{ text-align:left; }}
     <a href="#step7"><span class="nav-step s7">7</span>对标</a>
     <a href="#step8"><span class="nav-step s8">8</span>跟踪</a>
   </div>
-  <label for="theme-switch" class="theme-btn" id="themeToggle">🌙</label>
+  <button class="theme-btn" id="themeToggle">🌙</button>
 </div>
 
 <div class="container">
@@ -572,7 +562,88 @@ td:first-child, th:first-child {{ text-align:left; }}
   {REPORT_DATE} 生成 ｜ 不构成投资建议
 </div>
 </div>
-</div>
+
+<script>
+(function(){{ {{}}
+  var chartRegistry=[];
+  var tbtn=document.getElementById('themeToggle');
+  var curT=localStorage.getItem('theme')==='light'?'light':'dark';
+  function applyT(l){ document.body.classList.toggle('light',l); tbtn.textContent=l?'☀️':'🌙'; localStorage.setItem('theme',l?'light':'dark'); curT=l?'light':'dark'; }
+  applyT(curT==='light');
+  tbtn.onclick=function(){ var nl=!document.body.classList.contains('light'); applyT(nl); reInitCharts(nl?'light':'dark'); };
+  function initChart(id,opt){ pendingOpts.push({id:id,opt:opt}); }
+  (function(){
+    try{
+      var code = atob("ECHARTS_B64_PLACEHOLDER");
+      var blob = new Blob([code],{type:'application/javascript'});
+      var url = URL.createObjectURL(blob);
+      var s = document.createElement('script');
+      s.src = url;
+      s.onload = function(){
+        pendingOpts.forEach(function(item){
+          var dom=document.getElementById(item.id);
+          if(dom){
+            try{
+              var c=echarts.init(dom,curT);
+              c.setOption(item.opt);
+              window.addEventListener('resize',function(){c.resize()});
+              chartRegistry.push({id:item.id,opt:item.opt,inst:c});
+            }catch(e){ console.error('chart '+item.id+':',e); }
+          }
+        });
+      };
+      s.onerror = function(){ console.error('echarts blob fail'); };
+      document.body.appendChild(s);
+    }catch(e){ console.error('echarts loader:',e); }
+  })();
+  window.reInitCharts=function(theme){ chartRegistry.forEach(function(item){ try{ item.inst.dispose(); }catch(e){} var dom=document.getElementById(item.id); if(dom){ var c=echarts.init(dom,theme); c.setOption(item.opt); item.inst=c; } }); };
+}})();
+
+// 导航滚动高亮
+(function(){{
+  var links=document.querySelectorAll('#navLinks a'), sections=[];
+  links.forEach(function(a){ var id=a.getAttribute('href').slice(1),el=document.getElementById(id); if(el) sections.push({{el:el,a:a}}); });
+  function onScroll(){ var top=window.scrollY+100,active=null; sections.forEach(function(s){ if(s.el.offsetTop<=top) active=s.a; }); links.forEach(function(a){ a.classList.remove('active'); }); if(active) active.classList.add('active'); }
+  window.addEventListener('scroll',onScroll); onScroll();
+  links.forEach(function(a){ a.addEventListener('click',function(e){ e.preventDefault(); var id=a.getAttribute('href').slice(1),el=document.getElementById(id); if(el) el.scrollIntoView({{behavior:'smooth',block:'start'}}); }); });
+}})();
+
+// 1. K线
+initChart('chart-kline',{{tooltip:{{trigger:'axis',axisPointer:{{type:'cross'}},backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}}}},legend:{{data:['K线','MA5','MA20','MA60','成交量'],top:0,textStyle:{{color:'#8892b0'}}}},grid:[{{left:'8%',right:'8%',top:'40px',height:'58%'}},{{left:'8%',right:'8%',top:'75%',height:'15%'}}],xAxis:[{{type:'category',data:{KH_DATES},gridIndex:0,axisLabel:{{color:'#64748b',fontSize:10,rotate:30}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},{{type:'category',data:{KH_DATES},gridIndex:1,axisLabel:{{show:false}},axisLine:{{show:false}}}}],yAxis:[{{type:'value',gridIndex:0,scale:true,splitLine:{{lineStyle:{{color:'#1e293b'}}}},axisLabel:{{color:'#64748b'}}}},{{type:'value',gridIndex:1,splitLine:{{show:false}},axisLabel:{{color:'#64748b'}}}}],dataZoom:[{{type:'inside',xAxisIndex:[0,1],start:{KH_START},end:100}}],series:[{{name:'K线',type:'candlestick',xAxisIndex:0,yAxisIndex:0,data:{KH_PRICES},itemStyle:{{color:'#ef4444',color0:'#22c55e',borderColor:'#ef4444',borderColor0:'#22c55e'}}}},{{name:'MA5',type:'line',xAxisIndex:0,yAxisIndex:0,data:{KH_MA5},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#f59e0b'}}}},{{name:'MA20',type:'line',xAxisIndex:0,yAxisIndex:0,data:{KH_MA20},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#3b82f6'}}}},{{name:'MA60',type:'line',xAxisIndex:0,yAxisIndex:0,data:{KH_MA60},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#8b5cf6'}}}},{{name:'成交量',type:'bar',xAxisIndex:1,yAxisIndex:1,data:{KH_VOLS},itemStyle:{{color:function(p){{return p.data[1]>=0?'#ef444480':'#22c55e80'}}}}}}]}});
+
+// 2. 营收&净利润
+initChart('chart-revenue',{{tooltip:{{trigger:'axis',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}}}},legend:{{data:['营收','净利润'],textStyle:{{color:'#8892b0'}}}},grid:{{left:'10%',right:'8%',top:'15%',bottom:'12%'}},xAxis:{{type:'category',data:{RV_LABELS},axisLabel:{{color:'#64748b',rotate:20}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},yAxis:[{{type:'value',name:'营收(亿)',nameTextStyle:{{color:'#8892b0'}},splitLine:{{lineStyle:{{color:'#1e293b'}}}},axisLabel:{{color:'#64748b'}}}},{{type:'value',name:'净利(亿)',nameTextStyle:{{color:'#8892b0'}},splitLine:{{show:false}},axisLabel:{{color:'#64748b'}}}}],series:[{{name:'营收',type:'bar',data:{RV_REVENUE},itemStyle:{{color:'#3b82f6'}},barWidth:'30%'}},{{name:'净利润',type:'line',yAxisIndex:1,data:{RV_PROFIT},smooth:true,symbol:'circle',lineStyle:{{width:2,color:'#f59e0b'}},itemStyle:{{color:'#f59e0b'}}}}]}});
+
+// 3. 毛利率&净利率
+initChart('chart-margin',{{tooltip:{{trigger:'axis',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}},valueFormatter:function(v){{return v.toFixed(1)+'%'}}}},legend:{{data:['毛利率','净利率'],textStyle:{{color:'#8892b0'}}}},grid:{{left:'10%',right:'8%',top:'15%',bottom:'12%'}},xAxis:{{type:'category',data:{RV_LABELS},axisLabel:{{color:'#64748b',rotate:20}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},yAxis:{{type:'value',name:'%',axisLabel:{{formatter:'{{value}}%',color:'#64748b'}},splitLine:{{lineStyle:{{color:'#1e293b'}}}}}},series:[{{name:'毛利率',type:'line',data:{MG_GROSS},smooth:true,symbol:'diamond',lineStyle:{{width:2,color:'#3b82f6'}},itemStyle:{{color:'#3b82f6'}},areaStyle:{{color:'rgba(59,130,246,0.1)'}}}},{{name:'净利率',type:'line',data:{MG_NET},smooth:true,symbol:'circle',lineStyle:{{width:2,color:'#22c55e'}},itemStyle:{{color:'#22c55e'}},areaStyle:{{color:'rgba(34,197,94,0.1)'}}}}]}});
+
+// 4. PE vs PB 估值
+initChart('chart-valuation',{{tooltip:{{trigger:'axis',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}}}},legend:{{data:['PE-TTM','PB'],top:0,textStyle:{{color:'#8892b0'}}}},grid:{{left:'10%',right:'8%',top:'15%',bottom:'12%'}},xAxis:{{type:'category',data:{VL_DATES},axisLabel:{{color:'#64748b',fontSize:10,rotate:30}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},yAxis:[{{type:'value',name:'PE',nameTextStyle:{{color:'#8892b0'}},splitLine:{{lineStyle:{{color:'#1e293b'}}}},axisLabel:{{color:'#64748b'}}}},{{type:'value',name:'PB',nameTextStyle:{{color:'#8892b0'}},splitLine:{{show:false}},axisLabel:{{color:'#64748b'}}}}],series:[{{name:'PE-TTM',type:'line',data:{VL_PE},smooth:true,symbol:'none',lineStyle:{{width:2,color:'#ef4444'}},areaStyle:{{color:'rgba(239,68,68,0.08)'}}}},{{name:'PB',type:'line',yAxisIndex:1,data:{VL_PB},smooth:true,symbol:'none',lineStyle:{{width:2,color:'#3b82f6'}},areaStyle:{{color:'rgba(59,130,246,0.08)'}}}}]}});
+
+// 5. 雷达图
+initChart('chart-radar',{{tooltip:{{backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}}}},radar:{{indicator:{RADAR_INDICATORS},radius:'60%',axisName:{{color:'#8892b0'}},splitArea:{{areaStyle:{{color:['rgba(59,130,246,0.02)','rgba(59,130,246,0.04)','rgba(59,130,246,0.06)','rgba(59,130,246,0.08)','rgba(59,130,246,0.1)']}}}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},series:[{{type:'radar',data:[{{value:{RADAR_VALUES},name:'质量评分',areaStyle:{{color:'rgba(59,130,246,0.3)'}},lineStyle:{{color:'#3b82f6',width:2}},itemStyle:{{color:'#60a5fa'}}}}]}}]}});
+
+// 6. 主营构成
+initChart('chart-revenue-bd',{{tooltip:{{trigger:'item',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}},formatter:'{{b}}: {{c}}%'}},series:[{{type:'pie',radius:['35%','60%'],center:['50%','55%'],data:{REV_BD_DATA},label:{{color:'#8892b0',formatter:'{{b}}\n{{d}}%'}},labelLine:{{lineStyle:{{color:'#2a3550'}}}},itemStyle:{{borderRadius:6,color:['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#ec4899']}}}}]}});
+
+{MONEYFLOW_JS}
+
+// 8. 行业周期仪表// 8. 行业周期仪表
+var cycleData = {CYCLE_GAUGE};
+initChart('chart-cycle',{{tooltip:{{formatter:'{{b}}: {{c}}%'}},series:[{{type:'gauge',center:['25%','55%'],radius:'70%',startAngle:210,endAngle:-30,min:0,max:100,splitNumber:5,axisLine:{{lineStyle:{{width:14,color:[[0.25,'#22c55e'],[0.5,'#f59e0b'],[0.75,'#f97316'],[1,'#ef4444']]}}}},axisTick:{{lineStyle:{{color:'#475569',width:1}}}},splitLine:{{length:8,lineStyle:{{color:'#475569',width:2}}}},axisLabel:{{color:'#64748b',fontSize:10,distance:20,formatter:function(v){{return v<=25?'早期':v<=50?'成长':v<=75?'成熟':'衰退'}}}},pointer:{{width:4,length:'60%'}},title:{{show:true,offsetCenter:[0,'30%'],fontSize:11,color:'#8892b0'}},detail:{{show:true,offsetCenter:[0,'45%'],fontSize:18,fontWeight:700,color:'#60a5fa',formatter:'{{value}}%'}},data:[{{value:cycleData.industry, name:'行业周期'}}]}},{{type:'gauge',center:['75%','55%'],radius:'70%',startAngle:210,endAngle:-30,min:0,max:100,splitNumber:5,axisLine:{{lineStyle:{{width:14,color:[[0.25,'#22c55e'],[0.5,'#f59e0b'],[0.75,'#f97316'],[1,'#ef4444']]}}}},axisTick:{{lineStyle:{{color:'#475569',width:1}}}},splitLine:{{length:8,lineStyle:{{color:'#475569',width:2}}}},axisLabel:{{color:'#64748b',fontSize:10,distance:20,formatter:function(v){{return v<=25?'低估':v<=50?'合理':v<=75?'偏高':'高估'}}}},pointer:{{width:4,length:'60%'}},title:{{show:true,offsetCenter:[0,'30%'],fontSize:11,color:'#8892b0'}},detail:{{show:true,offsetCenter:[0,'45%'],fontSize:18,fontWeight:700,color:'#f59e0b',formatter:'{{value}}%'}},data:[{{value:cycleData.valuation, name:'估值热度'}}]}}]}});
+
+// 9. 盈利预测
+var fc = {FORECAST_DATA};
+initChart('chart-forecast',{{tooltip:{{trigger:'axis',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}}}},legend:{{data:['营收(亿)','净利润(亿)'],textStyle:{{color:'#8892b0'}}}},grid:{{left:'10%',right:'8%',top:'15%',bottom:'12%'}},xAxis:{{type:'category',data:fc.labels,axisLabel:{{color:'#64748b'}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},yAxis:[{{type:'value',name:'营收',nameTextStyle:{{color:'#8892b0'}},splitLine:{{lineStyle:{{color:'#1e293b'}}}},axisLabel:{{color:'#64748b'}}}},{{type:'value',name:'净利润',nameTextStyle:{{color:'#8892b0'}},splitLine:{{show:false}},axisLabel:{{color:'#64748b'}}}}],series:[{{name:'营收(亿)',type:'bar',data:fc.revenue,itemStyle:{{color:'#3b82f6'}},barWidth:'25%'}},{{name:'净利润(亿)',type:'bar',data:fc.profit,itemStyle:{{color:'#f59e0b'}},barWidth:'25%'}}]}});
+
+// 10. 敏感度分析
+var sens = {SENSITIVITY_DATA};
+initChart('chart-sensitivity',{{tooltip:{{trigger:'axis',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}},formatter:function(p){{return p[0].axisValueLabel+'<br/>净利: '+p[0].data.toFixed(1)+'亿'}}}},grid:{{left:'10%',right:'8%',top:'10%',bottom:'14%'}},xAxis:{{type:'category',data:sens.labels,axisLabel:{{color:'#64748b',fontSize:11}},axisLine:{{lineStyle:{{color:'#2a3550'}}}},name:'营收增速',nameTextStyle:{{color:'#8892b0'}}}},yAxis:{{type:'value',name:'净利润(亿)',nameTextStyle:{{color:'#8892b0'}},splitLine:{{lineStyle:{{color:'#1e293b'}}}},axisLabel:{{color:'#64748b'}}}},series:[{{type:'bar',data:sens.values,barWidth:'35%',itemStyle:{{color:function(p){{var v=p.value; return v>=sens.base?'#22c55e':'#f59e0b'}}}},label:{{show:true,position:'top',color:'#8892b0',fontSize:10,formatter:'{{c}}亿'}}}}]}});
+
+// 11. 财务健康
+var fh = {FIN_HEALTH};
+initChart('chart-fin-health',{{tooltip:{{trigger:'axis',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}},valueFormatter:function(v){{return v.toFixed(1)+'%'}}}},legend:{{data:['资产负债率','流动比率'],textStyle:{{color:'#8892b0'}}}},grid:{{left:'10%',right:'8%',top:'15%',bottom:'12%'}},xAxis:{{type:'category',data:fh.labels,axisLabel:{{color:'#64748b',fontSize:10}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},yAxis:[{{type:'value',name:'%',nameTextStyle:{{color:'#8892b0'}},axisLabel:{{formatter:'{{value}}%',color:'#64748b'}},splitLine:{{lineStyle:{{color:'#1e293b'}}}}}},{{type:'value',name:'倍',nameTextStyle:{{color:'#8892b0'}},splitLine:{{show:false}},axisLabel:{{color:'#64748b'}}}}],series:[{{name:'资产负债率',type:'line',data:fh.debt,smooth:true,symbol:'none',lineStyle:{{width:2,color:'#ef4444'}},areaStyle:{{color:'rgba(239,68,68,0.08)'}}}},{{name:'流动比率',type:'line',yAxisIndex:1,data:fh.ratio,smooth:true,symbol:'none',lineStyle:{{width:2,color:'#22c55e'}},areaStyle:{{color:'rgba(34,197,94,0.08)'}}}}]}});
+</script>
 </body>
 </html>"""
 
@@ -1415,87 +1486,6 @@ def build_report(data_path: str) -> str:
         mf_html = '<div style="padding:30px;text-align:center;color:var(--text3);font-size:14px;">暂无资金流向数据</div>'
         mf_js = ''
 
-    # ── 生成双主题静态图表图片 ──
-    def _both(cid, dark_src, light_src):
-        """生成带双主题切换的HTML片段"""
-        d = dark_src or ''
-        l = light_src or d
-        _imgcache[cid] = (d, l)
-        return d
-    _imgcache = {}
-    img_cache = _imgcache  # alias for template injection
-
-    try:
-        # K-line: convert [o,c,l,h] → [o,h,l,c] for mplfinance
-        if kh_prices:
-            k_dates = [d[:10] for d in kh_dates]
-            k_opens = [p[0] for p in kh_prices]
-            k_closes = [p[1] for p in kh_prices]
-            k_lows = [p[2] for p in kh_prices]
-            k_highs = [p[3] for p in kh_prices]
-            k_vols = [v[1] for v in kh_vols] if kh_vols else []
-            _both('chart-kline',
-                  sc.kline_chart(k_dates, k_opens, k_highs, k_lows, k_closes, k_vols, title=stock_name, theme='dark'),
-                  sc.kline_chart(k_dates, k_opens, k_highs, k_lows, k_closes, k_vols, title=stock_name, theme='light'))
-
-        if fin.get('labels'):
-            _both('chart-revenue',
-                  sc.grouped_bar_chart(fin['labels'], [('营收(亿)', fin['revenue']), ('净利润(亿)', fin['profit'])], title='营收与净利润趋势', theme='dark'),
-                  sc.grouped_bar_chart(fin['labels'], [('营收(亿)', fin['revenue']), ('净利润(亿)', fin['profit'])], title='营收与净利润趋势', theme='light'))
-            _both('chart-margin',
-                  sc.line_chart(fin['labels'], [('毛利率', fin['gross']), ('净利率', fin['net'])], title='利润率趋势', theme='dark'),
-                  sc.line_chart(fin['labels'], [('毛利率', fin['gross']), ('净利率', fin['net'])], title='利润率趋势', theme='light'))
-
-        if val_data.get('dates'):
-            _both('chart-valuation',
-                  sc.dual_axis_chart(val_data['dates'][-120:], [('PE-TTM', val_data['pe'][-120:])], [('PB', val_data['pb'][-120:])], title='PE/PB估值走势', ylabel_left='PE', ylabel_right='PB', theme='dark'),
-                  sc.dual_axis_chart(val_data['dates'][-120:], [('PE-TTM', val_data['pe'][-120:])], [('PB', val_data['pb'][-120:])], title='PE/PB估值走势', ylabel_left='PE', ylabel_right='PB', theme='light'))
-
-        if radar_data.get('indicators'):
-            cats = [i['name'][:4] for i in radar_data['indicators']]
-            vals = [i['max'] for i in radar_data['indicators']]
-            _both('chart-radar',
-                  sc.radar_chart(cats, vals, title='综合评分雷达', theme='dark'),
-                  sc.radar_chart(cats, vals, title='综合评分雷达', theme='light'))
-
-        if rev_breakdown:
-            _both('chart-revenue-bd',
-                  sc.pie_chart(rev_breakdown[:12], title='主营构成', theme='dark'),
-                  sc.pie_chart(rev_breakdown[:12], title='主营构成', theme='light'))
-
-        if forecast_data.get('labels'):
-            _both('chart-forecast',
-                  sc.grouped_bar_chart(forecast_data['labels'], [('营收(亿)', forecast_data['revenue']), ('净利润(亿)', forecast_data['profit'])], title='盈利预测', theme='dark'),
-                  sc.grouped_bar_chart(forecast_data['labels'], [('营收(亿)', forecast_data['revenue']), ('净利润(亿)', forecast_data['profit'])], title='盈利预测', theme='light'))
-
-        if sensitivity_data.get('labels'):
-            _both('chart-sensitivity',
-                  sc.bar_chart(sensitivity_data['labels'], sensitivity_data['values'], title='营收增速 vs 净利率敏感度', theme='dark'),
-                  sc.bar_chart(sensitivity_data['labels'], sensitivity_data['values'], title='营收增速 vs 净利率敏感度', theme='light'))
-
-        if fin_health.get('labels'):
-            _both('chart-fin-health',
-                  sc.dual_axis_chart(fin_health['labels'], [('资产负债率', fin_health['debt'])], [('流动比率', fin_health['ratio'])], title='财务健康度', ylabel_left='%', ylabel_right='倍', theme='dark'),
-                  sc.dual_axis_chart(fin_health['labels'], [('资产负债率', fin_health['debt'])], [('流动比率', fin_health['ratio'])], title='财务健康度', ylabel_left='%', ylabel_right='倍', theme='light'))
-
-        if mf_data.get('dates'):
-            try:
-                _both('chart-moneyflow',
-                      sc.line_chart([d[-5:] for d in mf_data['dates'][-30:]],
-                                   [('主力流入', [v/10000 for v in mf_data['mainForce'][-30:]]),
-                                    ('超大单', [v/10000 for v in mf_data['super'][-30:]]),
-                                    ('大单', [v/10000 for v in mf_data['big'][-30:]])],
-                                   title='资金流向(万元)', theme='dark'),
-                      sc.line_chart([d[-5:] for d in mf_data['dates'][-30:]],
-                                   [('主力流入', [v/10000 for v in mf_data['mainForce'][-30:]]),
-                                    ('超大单', [v/10000 for v in mf_data['super'][-30:]]),
-                                    ('大单', [v/10000 for v in mf_data['big'][-30:]])],
-                                   title='资金流向(万元)', theme='light'))
-            except Exception:
-                pass
-    except Exception as e:
-        print(f'⚠️ 图表渲染异常: {e}')
-
     # ── 填入 _fill 参数 ──
     import re
     def _fill(template: str, **kw) -> str:
@@ -1611,34 +1601,15 @@ def build_report(data_path: str) -> str:
         SHAREHOLDER_ROWS=sh_rows,
         RESEARCH_ITEMS=research_items,
     ))
-    # ── Post-process: replace chart divs with dual-theme <img> tags ──
-    # Build {cid: (dark_src, light_src)} from _imgcache
-    _img_pairs = dict(getattr(build_report, '_last_cache', {}))
-    _img_pairs.update(_imgcache)
-    build_report._last_cache = _imgcache
-
-    # Remove echarts library script references
-    html = re.sub(r'<script[^>]*src="[^"]*echarts[^"]*"[^>]*></script>', '', html)
-    html = re.sub(r'<script[^>]*src="echarts\.min\.js"[^>]*></script>', '', html)
-
-    # Replace each chart div with dual-theme img pair
-    for cid, (dark_src, light_src) in _imgcache.items():
-        if not dark_src and not light_src:
-            continue
-        dark_src = dark_src or light_src or ''
-        light_src = light_src or dark_src or ''
-        img_html = (
-            f'<img src="{dark_src}" class="chart-img theme-dark"'
-            f' style="max-width:100%;height:auto;display:block;border-radius:6px;margin:8px auto;">'
-            f'<img src="{light_src}" class="chart-img theme-light"'
-            f' style="max-width:100%;height:auto;display:none;border-radius:6px;margin:8px auto;">'
-        )
-        html = re.sub(
-            rf'<div[^>]*?id="{re.escape(cid)}"[^>]*?>.*?</div>',
-            img_html, html, flags=re.DOTALL
-        )
-    # Handle cycle gauge
-    html = re.sub(r'<div[^>]*?id="chart-cycle"[^>]*?>.*?</div>', '', html, flags=re.DOTALL) 
+    # ── Inject echarts base64 data into Blob loader ──
+    import base64 as _b64mod
+    _epath = '/tmp/echarts.min.js'
+    if os.path.exists(_epath):
+        with open(_epath, 'rb') as _ef:
+            _eb64 = _b64mod.b64encode(_ef.read()).decode()
+        html = html.replace('ECHARTS_B64_PLACEHOLDER', _eb64)
+    else:
+        html = html.replace('ECHARTS_B64_PLACEHOLDER', '')
     return html
 
 
