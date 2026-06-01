@@ -173,6 +173,9 @@ body {{
 
 .chart-box {{ width:100%; height:380px; }}
 .chart-box.tall {{ height:460px; }}
+.chart-img {{ max-width:100%; height:auto; border-radius:6px; }}
+body.light .theme-dark {{ display:none !important; }}
+body.light .theme-light {{ display:block !important; }}
 
 /* ── 表格 ── */
 .table-wrap {{ overflow-x:auto; }}
@@ -1463,11 +1466,15 @@ def build_report(data_path: str) -> str:
         mf_html = '<div style="padding:30px;text-align:center;color:var(--text3);font-size:14px;">暂无资金流向数据</div>'
         mf_js = ''
 
-    # ── 生成静态图表图片 ──
-    img_kline = ''; img_revenue = ''; img_margin = ''
-    img_valuation = ''; img_radar = ''; img_bd = ''
-    img_forecast = ''; img_sensitivity = ''; img_finhealth = ''
-    img_moneyflow = ''
+    # ── 生成双主题静态图表图片 ──
+    def _both(cid, dark_src, light_src):
+        """生成带双主题切换的HTML片段"""
+        d = dark_src or ''
+        l = light_src or d
+        _imgcache[cid] = (d, l)
+        return d
+    _imgcache = {}
+    img_cache = _imgcache  # alias for template injection
 
     try:
         # K-line: convert [o,c,l,h] → [o,h,l,c] for mplfinance
@@ -1478,71 +1485,63 @@ def build_report(data_path: str) -> str:
             k_lows = [p[2] for p in kh_prices]
             k_highs = [p[3] for p in kh_prices]
             k_vols = [v[1] for v in kh_vols] if kh_vols else []
-            img_kline = sc.kline_chart(k_dates, k_opens, k_highs, k_lows, k_closes, k_vols, title=stock_name)
+            _both('chart-kline',
+                  sc.kline_chart(k_dates, k_opens, k_highs, k_lows, k_closes, k_vols, title=stock_name, theme='dark'),
+                  sc.kline_chart(k_dates, k_opens, k_highs, k_lows, k_closes, k_vols, title=stock_name, theme='light'))
 
-        # Revenue chart
         if fin.get('labels'):
-            img_revenue = sc.grouped_bar_chart(
-                fin['labels'],
-                [('营收(亿)', fin['revenue']), ('净利润(亿)', fin['profit'])],
-                title='营收与净利润趋势')
+            _both('chart-revenue',
+                  sc.grouped_bar_chart(fin['labels'], [('营收(亿)', fin['revenue']), ('净利润(亿)', fin['profit'])], title='营收与净利润趋势', theme='dark'),
+                  sc.grouped_bar_chart(fin['labels'], [('营收(亿)', fin['revenue']), ('净利润(亿)', fin['profit'])], title='营收与净利润趋势', theme='light'))
+            _both('chart-margin',
+                  sc.line_chart(fin['labels'], [('毛利率', fin['gross']), ('净利率', fin['net'])], title='利润率趋势', theme='dark'),
+                  sc.line_chart(fin['labels'], [('毛利率', fin['gross']), ('净利率', fin['net'])], title='利润率趋势', theme='light'))
 
-        # Margin chart
-        if fin.get('labels'):
-            img_margin = sc.line_chart(
-                fin['labels'],
-                [('毛利率', fin['gross']), ('净利率', fin['net'])],
-                title='利润率趋势', ylabel='%')
-
-        # Valuation
         if val_data.get('dates'):
-            img_valuation = sc.dual_axis_chart(
-                val_data['dates'][-120:],
-                [('PE-TTM', val_data['pe'][-120:])],
-                [('PB', val_data['pb'][-120:])],
-                title='PE/PB估值走势', ylabel_left='PE', ylabel_right='PB')
+            _both('chart-valuation',
+                  sc.dual_axis_chart(val_data['dates'][-120:], [('PE-TTM', val_data['pe'][-120:])], [('PB', val_data['pb'][-120:])], title='PE/PB估值走势', ylabel_left='PE', ylabel_right='PB', theme='dark'),
+                  sc.dual_axis_chart(val_data['dates'][-120:], [('PE-TTM', val_data['pe'][-120:])], [('PB', val_data['pb'][-120:])], title='PE/PB估值走势', ylabel_left='PE', ylabel_right='PB', theme='light'))
 
-        # Radar
         if radar_data.get('indicators'):
             cats = [i['name'][:4] for i in radar_data['indicators']]
             vals = [i['max'] for i in radar_data['indicators']]
-            img_radar = sc.radar_chart(cats, vals, title='综合评分雷达')
+            _both('chart-radar',
+                  sc.radar_chart(cats, vals, title='综合评分雷达', theme='dark'),
+                  sc.radar_chart(cats, vals, title='综合评分雷达', theme='light'))
 
-        # Revenue breakdown
         if rev_breakdown:
-            img_bd = sc.pie_chart(rev_breakdown[:12], title='主营构成')
+            _both('chart-revenue-bd',
+                  sc.pie_chart(rev_breakdown[:12], title='主营构成', theme='dark'),
+                  sc.pie_chart(rev_breakdown[:12], title='主营构成', theme='light'))
 
-        # Forecast
         if forecast_data.get('labels'):
-            img_forecast = sc.grouped_bar_chart(
-                forecast_data['labels'],
-                [('营收(亿)', forecast_data['revenue']), ('净利润(亿)', forecast_data['profit'])],
-                title='盈利预测')
+            _both('chart-forecast',
+                  sc.grouped_bar_chart(forecast_data['labels'], [('营收(亿)', forecast_data['revenue']), ('净利润(亿)', forecast_data['profit'])], title='盈利预测', theme='dark'),
+                  sc.grouped_bar_chart(forecast_data['labels'], [('营收(亿)', forecast_data['revenue']), ('净利润(亿)', forecast_data['profit'])], title='盈利预测', theme='light'))
 
-        # Sensitivity
         if sensitivity_data.get('labels'):
-            img_sensitivity = sc.bar_chart(
-                sensitivity_data['labels'], sensitivity_data['values'],
-                title='营收增速 vs 净利率敏感度', ylabel='净利润(亿)',
-                fmt='{:.2f}亿')
+            _both('chart-sensitivity',
+                  sc.bar_chart(sensitivity_data['labels'], sensitivity_data['values'], title='营收增速 vs 净利率敏感度', theme='dark'),
+                  sc.bar_chart(sensitivity_data['labels'], sensitivity_data['values'], title='营收增速 vs 净利率敏感度', theme='light'))
 
-        # Financial health
         if fin_health.get('labels'):
-            img_finhealth = sc.dual_axis_chart(
-                fin_health['labels'],
-                [('资产负债率', fin_health['debt'])],
-                [('流动比率', fin_health['ratio'])],
-                title='财务健康度', ylabel_left='%', ylabel_right='倍')
+            _both('chart-fin-health',
+                  sc.dual_axis_chart(fin_health['labels'], [('资产负债率', fin_health['debt'])], [('流动比率', fin_health['ratio'])], title='财务健康度', ylabel_left='%', ylabel_right='倍', theme='dark'),
+                  sc.dual_axis_chart(fin_health['labels'], [('资产负债率', fin_health['debt'])], [('流动比率', fin_health['ratio'])], title='财务健康度', ylabel_left='%', ylabel_right='倍', theme='light'))
 
-        # Money flow
         if mf_data.get('dates'):
             try:
-                img_moneyflow = sc.line_chart(
-                    [d[-5:] for d in mf_data['dates'][-30:]],
-                    [('主力净流入', [v/10000 for v in mf_data['mainForce'][-30:]]),
-                     ('超大单', [v/10000 for v in mf_data['super'][-30:]]),
-                     ('大单', [v/10000 for v in mf_data['big'][-30:]])],
-                    title='资金流向(万元)', ylabel='万元')
+                _both('chart-moneyflow',
+                      sc.line_chart([d[-5:] for d in mf_data['dates'][-30:]],
+                                   [('主力流入', [v/10000 for v in mf_data['mainForce'][-30:]]),
+                                    ('超大单', [v/10000 for v in mf_data['super'][-30:]]),
+                                    ('大单', [v/10000 for v in mf_data['big'][-30:]])],
+                                   title='资金流向(万元)', theme='dark'),
+                      sc.line_chart([d[-5:] for d in mf_data['dates'][-30:]],
+                                   [('主力流入', [v/10000 for v in mf_data['mainForce'][-30:]]),
+                                    ('超大单', [v/10000 for v in mf_data['super'][-30:]]),
+                                    ('大单', [v/10000 for v in mf_data['big'][-30:]])],
+                                   title='资金流向(万元)', theme='light'))
             except Exception:
                 pass
     except Exception as e:
@@ -1662,50 +1661,35 @@ def build_report(data_path: str) -> str:
         CONSENSUS_ROWS=consensus_rows, CONSENSUS_COUNT=consensus_count,
         SHAREHOLDER_ROWS=sh_rows,
         RESEARCH_ITEMS=research_items,
-        # Static chart images (base64 PNG)
-        IMG_KLINE=img_kline or '',
-        IMG_REVENUE=img_revenue or '',
-        IMG_MARGIN=img_margin or '',
-        IMG_VALUATION=img_valuation or '',
-        IMG_RADAR=img_radar or '',
-        IMG_BD=img_bd or '',
-        IMG_FORECAST=img_forecast or '',
-        IMG_SENSITIVITY=img_sensitivity or '',
-        IMG_FINHEALTH=img_finhealth or '',
-        IMG_MONEYFLOW=img_moneyflow or '',
     ))
-    # ── Post-process: replace ECharts chart divs + JS with static img tags ──
-    # Map chart id → image data
-    _img_map = {
-        'chart-kline': img_kline,
-        'chart-revenue': img_revenue,
-        'chart-margin': img_margin,
-        'chart-valuation': img_valuation,
-        'chart-radar': img_radar,
-        'chart-revenue-bd': img_bd,
-        'chart-moneyflow': img_moneyflow,
-        'chart-forecast': img_forecast,
-        'chart-sensitivity': img_sensitivity,
-        'chart-fin-health': img_finhealth,
-    }
-    # Remove echarts library script references (they won't load offline)
+    # ── Post-process: replace chart divs with dual-theme <img> tags ──
+    # Build {cid: (dark_src, light_src)} from _imgcache
+    _img_pairs = dict(getattr(build_report, '_last_cache', {}))
+    _img_pairs.update(_imgcache)
+    build_report._last_cache = _imgcache
+
+    # Remove echarts library script references
     html = re.sub(r'<script[^>]*src="[^"]*echarts[^"]*"[^>]*></script>', '', html)
     html = re.sub(r'<script[^>]*src="echarts\.min\.js"[^>]*></script>', '', html)
-    # Replace each chart div with <img>
-    for cid, img in _img_map.items():
-        if not img:
+
+    # Replace each chart div with dual-theme img pair
+    for cid, (dark_src, light_src) in _imgcache.items():
+        if not dark_src and not light_src:
             continue
-        # Match by id alone (handles any attribute order)
+        dark_src = dark_src or light_src or ''
+        light_src = light_src or dark_src or ''
+        img_html = (
+            f'<img src="{dark_src}" class="chart-img theme-dark"'
+            f' style="max-width:100%;height:auto;display:block;border-radius:6px;margin:8px auto;">'
+            f'<img src="{light_src}" class="chart-img theme-light"'
+            f' style="max-width:100%;height:auto;display:none;border-radius:6px;margin:8px auto;">'
+        )
         html = re.sub(
             rf'<div[^>]*?id="{re.escape(cid)}"[^>]*?>.*?</div>',
-            f'<img src="{img}" class="chart-img" style="width:100%;display:block;border-radius:8px;margin-bottom:12px;">',
-            html, flags=re.DOTALL
+            img_html, html, flags=re.DOTALL
         )
     # Handle cycle gauge
-    html = re.sub(
-        r'<div[^>]*?id="chart-cycle"[^>]*?>.*?</div>',
-        '', html, flags=re.DOTALL
-    )
+    html = re.sub(r'<div[^>]*?id="chart-cycle"[^>]*?>.*?</div>', '', html, flags=re.DOTALL) 
     return html
 
 
