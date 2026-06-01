@@ -771,21 +771,46 @@ class ReportBuilder:
                 continue
         return {"dates": dates, "pe": pe_vals, "pb": pb_vals}
 
+    @staticmethod
+    def _parse_num(val: Any) -> float:
+        """Parse number string with 亿/万 suffix."""
+        if val is None or val == "" or val == "0" or val == "—":
+            return 0.0
+        s = str(val).strip()
+        if "万亿" in s:
+            return float(s.replace("万亿","")) * 10000
+        if "亿" in s:
+            return float(s.replace("亿",""))
+        if "万" in s:
+            return float(s.replace("万","")) / 10000
+        try:
+            return float(s)
+        except ValueError:
+            return 0.0
+
+    @staticmethod
+    def _parse_pct(val: Any) -> float:
+        """Parse percentage string."""
+        if val is None or val == "" or val == "—":
+            return 0.0
+        try:
+            return float(str(val).replace("%","").strip())
+        except ValueError:
+            return 0.0
+
     def financial_data(self):
         indicator = self._get("fin_bs", {}).get("ak_indicator", []) or self._get("fin_merged", {}).get("ak_indicator", [])
         labels, revs, profits, gross, net_m, debt, cur_r = [], [], [], [], [], [], []
         for row in indicator[-6:]:
             try:
                 labels.append(row.get("报告期","—")[:7])
-                revs.append(float(str(row.get("营业总收入","0")).replace("亿","").strip() or "0"))
-                profits.append(float(str(row.get("净利润","0")).replace("亿","").strip() or "0"))
-                gross.append(float(str(row.get("销售毛利率","0%")).replace("%","").strip() or "0"))
-                net_m.append(float(str(row.get("销售净利率","0%")).replace("%","").strip() or "0"))
-                d = float(str(row.get("资产负债率","0%")).replace("%","").strip() or "0")
-                debt.append(d)
-                r = float(str(row.get("流动比率","0%")).replace("%","").strip() or "0")
-                cur_r.append(r)
-            except:
+                revs.append(self._parse_num(row.get("营业总收入","0")))
+                profits.append(self._parse_num(row.get("净利润","0")))
+                gross.append(self._parse_pct(row.get("销售毛利率","0%")))
+                net_m.append(self._parse_pct(row.get("销售净利率","0%")))
+                debt.append(self._parse_pct(row.get("资产负债率","0%")))
+                cur_r.append(self._parse_num(row.get("流动比率","0")))
+            except Exception:
                 continue
         return {"labels": labels, "revenue": revs, "profit": profits,
                 "gross": gross, "net": net_m, "debt": debt, "ratio": cur_r}
@@ -1164,41 +1189,32 @@ class ReportBuilder:
         forecast = ths.get("ths_forecast", {})
         consensus = forecast.get("consensus", [])
         rev_map, np_map = {}, {}
+        rev_key = next((k for k in ["营业收入(元)","营业收入"]), "营业收入(元)")
+        np_key = next((k for k in ["净利润(元)","净利润"]), "净利润(元)")
         for item in consensus:
             key = item.get("预测指标","")
             for yr in [2023,2024,2025,2026,2027,2028]:
                 yk = f"预测{yr}（平均）" if yr > 2025 else f"{yr}（实际值）"
                 val = item.get(yk)
-                if "营业收入" == key and "增长" not in key:
+                if key in ("营业收入(元)", "营业收入") and "增长" not in key:
                     rev_map[yr] = val
-                elif "净利润" == key and "增长" not in key:
+                elif key in ("净利润(元)", "净利润") and "增长" not in key:
                     np_map[yr] = val
         labels, revs, profits = [], [], []
         for yr in [2023,2024,2025,2026,2027]:
             label = f"{yr}E" if yr > 2025 else f"{yr}A"
             r = rev_map.get(yr)
             n = np_map.get(yr)
-            if r is not None or n is not None:
+            if r is not None:
                 labels.append(label)
-                revs.append(round(float(r)/1e8, 2) if isinstance(r,(int,float)) and abs(r)>1e6 else 0)
-                profits.append(round(float(n)/1e8, 2) if isinstance(n,(int,float)) and abs(n)>1e6 else 0)
+                revs.append(self._parse_num(r))
+                profits.append(self._parse_num(n) if n is not None else 0)
         return {"labels": labels, "revenue": revs, "profit": profits}
 
     def sensitivity_data(self):
-        ths = self._get("ths", {})
-        forecast = ths.get("ths_forecast", {})
-        consensus = forecast.get("consensus", [])
-        np_2026e = None
-        for c in consensus:
-            if c.get("预测指标") == "净利润(元)":
-                raw = c.get("预测2026（平均）")
-                if raw:
-                    try:
-                        np_2026e = float(str(raw).replace("亿","")) / 1e8
-                    except:
-                        pass
-                break
-        base = np_2026e or 5.0
+        fc = self.forecast_data()
+        # Use the latest forecast year base
+        base = fc["profit"][-1] if fc["profit"] and fc["profit"][-1] > 0 else 5.0
         return {"labels": ["-20%","-10%","基准","+10%","+20%"], "values": [round(base*0.8,2), round(base*0.9,2), round(base,2), round(base*1.1,2), round(base*1.2,2)], "base": round(base,2)}
 
     def fin_health(self):
