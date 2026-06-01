@@ -151,12 +151,12 @@ def pie_chart(items, title="", theme="dark", width=4, height=3.2):
         textprops={"fontsize": 7, "color": t["text"]})
     ax.legend(wedges,
               [f"{n[:10]} ({v:.1f}%)" for n, v in zip(names, vals)],
-              loc="lower center", bbox_to_anchor=(0.5, -0.28),
-              ncol=3, fontsize=5, framealpha=0.3, prop=FONT,
-              handlelength=1, handletextpad=0.5, columnspacing=0.8)
+              loc="lower center", bbox_to_anchor=(0.5, -0.35),
+              ncol=4, fontsize=4.5, framealpha=0.3, prop=FONT,
+              handlelength=1, handletextpad=0.3, columnspacing=0.6)
     ax.set_title(title, fontproperties=FONT, fontsize=10, fontweight="bold", pad=6, color=t["text"])
     fig.set_facecolor(t["bg"])
-    plt.subplots_adjust(left=0.05, right=0.95, top=0.88, bottom=0.18)
+    plt.subplots_adjust(left=0.05, right=0.95, top=0.88, bottom=0.20)
     return _img(fig)
 
 
