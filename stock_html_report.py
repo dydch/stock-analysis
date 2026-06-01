@@ -42,7 +42,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   --hl: #3b82f6; --hl2: #60a5fa; --up: #ef4444; --down: #22c55e;
   --warn: #f59e0b; --purple: #8b5cf6; --orange: #f97316;
 }}
-#theme-switch:checked ~ * {{
+#theme-switch:checked ~ .page-wrapper {{
   --bg: #f8fafc; --card: #ffffff; --border: #e2e8f0;
   --text: #1e293b; --text2: #64748b; --text3: #94a3b8;
   --hl: #2563eb; --hl2: #3b82f6; --up: #dc2626; --down: #16a34a;
@@ -51,7 +51,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 * {{ margin:0; padding:0; box-sizing:border-box; }}
 body {{
   font-family: -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;
+  margin:0; padding:0;
+}}
+.page-wrapper {{
   background: var(--bg); color: var(--text); line-height: 1.6;
+  min-height: 100vh;
   transition: background .3s, color .3s;
 }}
 
@@ -292,7 +296,8 @@ td:first-child, th:first-child {{ text-align:left; }}
 </style>
 </head>
 <body>
-<input type="checkbox" id="theme-switch" class="theme-switch-input">
+<input type="checkbox" id="theme-switch" hidden>
+<div class="page-wrapper">
 
 <!-- ==================== 导航栏（含8步）==================== -->
 <div class="topbar">
@@ -565,6 +570,7 @@ td:first-child, th:first-child {{ text-align:left; }}
 <div class="footer">
   数据来源：BaoStock / akshare / 同花顺thsdk / 腾讯行情<br>
   {REPORT_DATE} 生成 ｜ 不构成投资建议
+</div>
 </div>
 </div>
 </body>
