@@ -558,6 +558,7 @@ td:first-child, th:first-child {{ text-align:left; }}
   <div>{RESEARCH_ITEMS}</div>
 </div>
 
+<div id="chart-debug" style="background:rgba(239,68,68,0.1);color:#ef4444;padding:8px;margin:8px 0;border:1px solid #ef4444;border-radius:4px;font-size:11px;white-space:pre-wrap;display:none;">加载中...</div>
 <div class="footer">
   数据来源：BaoStock / akshare / 同花顺thsdk / 腾讯行情<br>
   {REPORT_DATE} 生成 ｜ 不构成投资建议
@@ -572,7 +573,24 @@ td:first-child, th:first-child {{ text-align:left; }}
   function applyT(l){ document.body.classList.toggle('light',l); tbtn.textContent=l?'☀️':'🌙'; localStorage.setItem('theme',l?'light':'dark'); curT=l?'light':'dark'; }
   applyT(curT==='light');
   tbtn.onclick=function(){ var nl=!document.body.classList.contains('light'); applyT(nl); reInitCharts(nl?'light':'dark'); };
-  function initChart(id,opt){ var dom=document.getElementById(id); if(!dom)return; var c=echarts.init(dom,curT); c.setOption(opt); window.addEventListener('resize',function(){{c.resize()}}); chartRegistry.push({{id:id, opt:opt, inst:c}}); return c; }
+  function initChart(id,opt){
+  log('initChart: '+id);
+  try{
+    var dom=document.getElementById(id);
+    if(!dom){ log('  div not found: '+id); return; }
+    if(typeof echarts==='undefined'){ log('  ERROR: echarts not loaded!'); return; }
+    var c=echarts.init(dom,curT);
+    log('  echarts.init OK');
+    c.setOption(opt);
+    log('  setOption OK');
+    window.addEventListener('resize',function(){c.resize()});
+    chartRegistry.push({id:id, opt:opt, inst:c});
+    log('  init done');
+    return c;
+  }catch(e){
+    log('  ERROR in '+id+': '+e.message);
+  }
+}
   window.reInitCharts=function(theme){ chartRegistry.forEach(function(item){{ try{{ item.inst.dispose(); }}catch(e){{}} var dom=document.getElementById(item.id); if(dom){{ var c=echarts.init(dom,theme); c.setOption(item.opt); item.inst=c; }} }}); }};
 }})();
 
