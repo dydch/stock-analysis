@@ -20,11 +20,51 @@
 ### 使用方式
 
 ```bash
-# 混合数据源版（推荐）
+# 混合数据源版
 python stock_full_report_hybrid.py 600519
 
 # 原版（纯akshare）
 python stock_full_report.py 600519
+```
+
+### 三源整合版（最新 — 推荐）
+
+`stock_full_report_ths_integrated.py` — 在 hybrid 基础上新增 **同花顺 SDK (thsdk)** 数据源，三源合一。
+
+**新增数据维度：**
+- ✅ 分钟K线多周期（1m/5m/15m/30m/60m/120m）
+- ✅ 五档盘口 + 买卖委托深度
+- ✅ 大单流向（特大单/大单主力净流入）
+- ✅ 日内分时 + 历史分时回溯
+- ✅ 集合竞价异动扫描
+- ✅ 3秒级 Tick 数据
+- ✅ 同花顺机构一致预期EPS
+- ✅ 实时资讯快讯
+- ✅ 问财NLP自然语言选股
+
+**新增模式：**
+- `ths-enhanced`（默认）— BaoStock + akshare + thsdk 全开
+- `ths-only` — 仅thsdk（3秒出结果，快速扫描盘口/大单/分时）
+- `ba+ths` — BaoStock + thsdk（跳过不稳定的akshare）
+
+```bash
+# 安装依赖
+pip install thsdk --upgrade
+
+# 三源整合（推荐）
+python stock_full_report_ths_integrated.py 600519
+
+# 快速扫描（仅thsdk，3秒出盘口/大单/分时）
+python stock_full_report_ths_integrated.py 688099 --mode ths-only
+
+# 仅BaoStock+thsdk（跳过akshare）
+python stock_full_report_ths_integrated.py 688099 --mode ba+ths
+
+# 问财NLP查询
+python stock_full_report_ths_integrated.py --wencai "连续3日主力净流入，非ST"
+
+# 板块/指数行情
+python stock_full_report_ths_integrated.py --sector
 ```
 
 ---
