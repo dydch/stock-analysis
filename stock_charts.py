@@ -137,7 +137,7 @@ def line_chart(labels, series_list, title="", theme="dark", width=5, height=2.2)
     return _img(fig)
 
 
-def pie_chart(items, title="", theme="dark", width=4, height=2.6):
+def pie_chart(items, title="", theme="dark", width=4, height=3.2):
     t = THEMES[theme]
     fig, ax = _base_fig(width, height)
     names = [it["name"] for it in items if it.get("value", 0) > 0]
@@ -147,15 +147,16 @@ def pie_chart(items, title="", theme="dark", width=4, height=2.6):
         return ""
     wedges, _, autotexts = ax.pie(
         vals, labels=None, autopct="%1.1f%%",
-        colors=COLORS[:len(vals)], startangle=90, pctdistance=0.72,
-        textprops={"fontsize": 6, "color": t["text"]})
+        colors=COLORS[:len(vals)], startangle=90, pctdistance=0.82,
+        textprops={"fontsize": 7, "color": t["text"]})
     ax.legend(wedges,
               [f"{n[:10]} ({v:.1f}%)" for n, v in zip(names, vals)],
-              loc="lower center", bbox_to_anchor=(0.5, -0.1),
-              ncol=2, fontsize=5.5, framealpha=0.4, prop=FONT)
+              loc="lower center", bbox_to_anchor=(0.5, -0.28),
+              ncol=3, fontsize=5, framealpha=0.3, prop=FONT,
+              handlelength=1, handletextpad=0.5, columnspacing=0.8)
     ax.set_title(title, fontproperties=FONT, fontsize=10, fontweight="bold", pad=6, color=t["text"])
     fig.set_facecolor(t["bg"])
-    plt.tight_layout()
+    plt.subplots_adjust(left=0.05, right=0.95, top=0.88, bottom=0.18)
     return _img(fig)
 
 
