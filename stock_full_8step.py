@@ -238,12 +238,11 @@ class StepBuilder:
 
     # ─── S7: 对标分析 ───
     def step7(self) -> str:
-        from html_mod import fmt_pct
         pe_s = f"{self.rb.last_pe_pb()[0]:.1f}x" if self.rb.last_pe_pb()[0] else "—"
         metrics = self.rb.key_metrics()
-        gp = fmt_pct(metrics.get("销售毛利率","—"))
-        np = fmt_pct(metrics.get("销售净利率","—"))
-        roe = fmt_pct(metrics.get("净资产收益率","—"))
+        gp = html_mod.fmt_pct(metrics.get("销售毛利率","—"))
+        np = html_mod.fmt_pct(metrics.get("销售净利率","—"))
+        roe = html_mod.fmt_pct(metrics.get("净资产收益率","—"))
         mcap = self.rb.market_cap()
 
         return f"""## S7: 对标分析
