@@ -571,7 +571,7 @@ td:first-child, th:first-child {{ text-align:left; }}
   function applyT(l){ document.body.classList.toggle('light',l); tbtn.textContent=l?'☀️':'🌙'; localStorage.setItem('theme',l?'light':'dark'); curT=l?'light':'dark'; }
   applyT(curT==='light');
   tbtn.onclick=function(){ var nl=!document.body.classList.contains('light'); applyT(nl); reInitCharts(nl?'light':'dark'); };
-  function initChart(id,opt){ pendingOpts.push({id:id,opt:opt}); }
+  window.initChart=function(id,opt){ pendingOpts.push({id:id,opt:opt}); return pendingOpts.length; }
   (function(){
     try{
       var code = atob("ECHARTS_B64_PLACEHOLDER");
