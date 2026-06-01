@@ -289,6 +289,8 @@ td:first-child, th:first-child {{ text-align:left; }}
 </style>
 </head>
 <body>
+<div id="js-check" style="position:fixed;top:0;left:0;right:0;z-index:9999;background:#ef4444;color:white;padding:8px;text-align:center;font-size:14px">JS检测中...</div>
+
 
 <!-- ==================== 导航栏（含8步）==================== -->
 <div class="topbar">
@@ -558,7 +560,7 @@ td:first-child, th:first-child {{ text-align:left; }}
   <div>{RESEARCH_ITEMS}</div>
 </div>
 
-<div id="chart-debug" style="background:rgba(239,68,68,0.1);color:#ef4444;padding:8px;margin:8px 0;border:1px solid #ef4444;border-radius:4px;font-size:11px;white-space:pre-wrap;display:none;">加载中...</div>
+<div id="chart-debug" style="background:rgba(239,68,68,0.1);color:#ef4444;padding:8px;margin:8px 0;border:1px solid #ef4444;border-radius:4px;font-size:11px;white-space:pre-wrap;display:block;">加载中...</div>
 <div class="footer">
   数据来源：BaoStock / akshare / 同花顺thsdk / 腾讯行情<br>
   {REPORT_DATE} 生成 ｜ 不构成投资建议
@@ -639,6 +641,7 @@ initChart('chart-sensitivity',{{tooltip:{{trigger:'axis',backgroundColor:'#1a233
 var fh = {FIN_HEALTH};
 initChart('chart-fin-health',{{tooltip:{{trigger:'axis',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}},valueFormatter:function(v){{return v.toFixed(1)+'%'}}}},legend:{{data:['资产负债率','流动比率'],textStyle:{{color:'#8892b0'}}}},grid:{{left:'10%',right:'8%',top:'15%',bottom:'12%'}},xAxis:{{type:'category',data:fh.labels,axisLabel:{{color:'#64748b',fontSize:10}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},yAxis:[{{type:'value',name:'%',nameTextStyle:{{color:'#8892b0'}},axisLabel:{{formatter:'{{value}}%',color:'#64748b'}},splitLine:{{lineStyle:{{color:'#1e293b'}}}}}},{{type:'value',name:'倍',nameTextStyle:{{color:'#8892b0'}},splitLine:{{show:false}},axisLabel:{{color:'#64748b'}}}}],series:[{{name:'资产负债率',type:'line',data:fh.debt,smooth:true,symbol:'none',lineStyle:{{width:2,color:'#ef4444'}},areaStyle:{{color:'rgba(239,68,68,0.08)'}}}},{{name:'流动比率',type:'line',yAxisIndex:1,data:fh.ratio,smooth:true,symbol:'none',lineStyle:{{width:2,color:'#22c55e'}},areaStyle:{{color:'rgba(34,197,94,0.08)'}}}}]}});
 </script>
+<script>try{document.getElementById("js-check").style.display="none"}catch(e){}</script>
 </body>
 </html>"""
 
