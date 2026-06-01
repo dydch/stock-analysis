@@ -111,7 +111,7 @@ class StepBuilder:
 **核心竞争优势**: [AI] 技术/品牌/渠道/成本壁垒
 """
 
-    # ─── S3: 质量评分 ───
+    # ─── S3: 公司筛选与质量评分 ───
     def step3(self) -> str:
         score_items, total, _ = self.rb.scores_and_radar()
         metrics = self.rb.key_metrics()
@@ -120,8 +120,10 @@ class StepBuilder:
         roe = metrics.get("净资产收益率", "—")
         debt = metrics.get("资产负债率", "—")
         mcap = self.rb.market_cap()
+        shares_f = float(self.rb.total_shares()) or 0
+        cap_str = f"{float(mcap.replace('亿','')):.0f}亿" if mcap != "—" else "—"
+        size = "大盘(>500亿)" if cap_str and float(cap_str.replace('亿','')) > 500 else ("中盘(100-500亿)" if cap_str and float(cap_str.replace('亿','')) > 100 else "小盘(<100亿)")
 
-        # Extract letter grades from score_items
         grades = {}
         for line in score_items.split("\n"):
             for k in ["盈利能力","成长性","财务健康","估值合理","ROE质量"]:
@@ -133,6 +135,12 @@ class StepBuilder:
 
         return f"""## S3: 公司筛选与质量评分
 
+**市值门槛**: {size} ({mcap})
+
+**行业地位**: [AI] 龙头/领先/跟随
+
+**业务聚焦度**: [AI] 专注度评估
+
 | 维度 | 评分 | 说明 |
 |------|------|------|
 | 盈利能力 | {grades.get("盈利能力","—")} | 毛利率 {gp} |
@@ -142,7 +150,6 @@ class StepBuilder:
 | ROE质量 | {grades.get("ROE质量","—")} | ROE {roe} |
 
 **总分**: {total}/100
-**市值**: {mcap}
 """
 
     # ─── S4: 弹性测算 ───
@@ -186,18 +193,18 @@ class StepBuilder:
             rows += f"| {lvl_str} | {text} |\n"
         return f"""## S5: 风险分析
 
-### 风险识别
+### 风险类型识别
 
-| 级别 | 描述 |
-|------|------|
-{rows}
+| 风险类型 | 具体描述 | 影响程度 | 发生概率 |
+|---------|---------|---------|---------|
+| 估值风险 | {items[0][1] if items else '[AI]'} | 高/中/低 | [AI] |
+| 业绩风险 | [AI] | 高/中/低 | [AI] |
+| 行业风险 | [AI] | 高/中/低 | [AI] |
 
-### 止损策略
-- 第一止损位: [AI] (跌破则减半)
-- 第二止损位: [AI] (跌破则清仓)
-- 清仓条件: [AI] (基本面恶化/逻辑破坏)
-
-[AI] 补充其他风险类型（政策/行业/技术等）
+### 止损信号设定
+- **第一止损位**: [AI]（跌破则减半）
+- **第二止损位**: [AI]（跌破则清仓）
+- **清仓条件**: [AI]（基本面恶化/逻辑破坏）
 """
 
     # ─── S6: 买卖时机 ───
@@ -231,28 +238,28 @@ class StepBuilder:
 
     # ─── S7: 对标分析 ───
     def step7(self) -> str:
-        peers_html = self.rb.peer_rows()
-        peers_md = peers_html.replace("<tr>", "|").replace("</tr>", "|\n").replace("<td>", "|").replace("</td>", "|")
-        peers_md = peers_md.replace(' style=...', '').replace('font-weight:600', '').replace('★', '★')
-        # Clean up HTML artifacts
-        import re
-        peers_md = re.sub(r'<[^>]+>', '', peers_md)
-        peers_md = peers_md.replace('||\n|', '|\n|')
+        from html_mod import fmt_pct
+        pe_s = f"{self.rb.last_pe_pb()[0]:.1f}x" if self.rb.last_pe_pb()[0] else "—"
+        metrics = self.rb.key_metrics()
+        gp = fmt_pct(metrics.get("销售毛利率","—"))
+        np = fmt_pct(metrics.get("销售净利率","—"))
+        roe = fmt_pct(metrics.get("净资产收益率","—"))
+        mcap = self.rb.market_cap()
 
         return f"""## S7: 对标分析
 
-### 同行对比
+### 同行业公司对比
 
-[AI] 补充同行对比数据（当前为骨架）
-| 公司 | PE | ROE | 毛利率 | 净利率 | 增速 | 市值 |
-|------|----|-----|--------|--------|------|------|
-| ★ {self.rb.stock_name()} | {f"{self.rb.last_pe_pb()[0]:.1f}x" if self.rb.last_pe_pb()[0] else "—"} | ... | ... | ... | ... | ... |
+| 公司 | PE | ROE | 毛利率 | 净利率 | 营收增速 | 市值 |
+|------|----|-----|--------|--------|---------|------|
+| ★ {self.rb.stock_name()} | {pe_s} | {roe} | {gp} | {np} | [AI] | {mcap} |
+| [AI补充] | — | — | — | — | — | — |
 
-**增长引擎判断**: [AI] 主要增长驱动力分析
+### 增长引擎判断
+[AI] 主要增长驱动力分析
 
-**竞争优势分析**: [AI] 核心壁垒与持续能力
-
-**同行业估值对比**: [AI] 溢价或折价原因分析
+### 竞争优势分析
+[AI] 核心壁垒与持续能力
 """
 
     # ─── S8: 跟踪计划 ───
@@ -265,13 +272,13 @@ class StepBuilder:
 
 ### 关键指标监控
 {kpi_lines}
-### 复盘计划
+### 定期复盘计划
 - **频率**: 每季财报后系统复盘
 - **关键节点**: 中报/年报发布日
 
 ### 综合结论
 - **评级**: {self.rb.rating_letter()}
-- **核心逻辑**: [AI] 一句话总结
+- **核心逻辑**: [AI] 一句话总结当前投资逻辑
 - **操作建议**: [AI] 建仓/持有/卖出
 
 ---
