@@ -22,8 +22,6 @@ from __future__ import annotations
 import re, json, os, sys, argparse, datetime as dt
 from typing import Any
 
-# Static chart rendering (no JS dependency)
-import stock_charts as sc
 
 
 # ════════════════════ HTML 模板（完整版）════════════════════
@@ -34,7 +32,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>个股研究 - {STOCK_NAME}</title>
-<script src="echarts.min.js"></script>
+<!--ECHARTS_INLINE-->
 <style>
 :root {{
   --bg: #0a0e17; --card: #141b2d; --border: #2a3550;
@@ -567,14 +565,16 @@ td:first-child, th:first-child {{ text-align:left; }}
 </div>
 
 <script>
-(function(){{ // 主题切换
-  var btn=document.getElementById('themeToggle');
-  var isLight=localStorage.getItem('theme')==='light';
-  function apply(l){ document.body.classList.toggle('light',l); btn.textContent=l?'☀️':'🌙'; localStorage.setItem('theme',l?'light':'dark'); }
-  apply(isLight);
-  btn.onclick=function(){ apply(!document.body.classList.contains('light')); reRenderAll(); };
-  window.reRenderAll=function(){ setTimeout(function(){ document.querySelectorAll('[id^=chart-]').forEach(function(el){ var inst=echarts.getInstanceByDom(el); if(inst) inst.resize(); }); },100); };
-})();
+(function(){{ {{}}
+  var chartRegistry=[];
+  var tbtn=document.getElementById('themeToggle');
+  var curT=localStorage.getItem('theme')==='light'?'light':'dark';
+  function applyT(l){ document.body.classList.toggle('light',l); tbtn.textContent=l?'☀️':'🌙'; localStorage.setItem('theme',l?'light':'dark'); curT=l?'light':'dark'; }
+  applyT(curT==='light');
+  tbtn.onclick=function(){ var nl=!document.body.classList.contains('light'); applyT(nl); reInitCharts(nl?'light':'dark'); };
+  function initChart(id,opt){ var dom=document.getElementById(id); if(!dom)return; var c=echarts.init(dom,curT); c.setOption(opt); window.addEventListener('resize',function(){{c.resize()}}); chartRegistry.push({{id:id, opt:opt, inst:c}}); return c; }
+  window.reInitCharts=function(theme){ chartRegistry.forEach(function(item){{ try{{ item.inst.dispose(); }}catch(e){{}} var dom=document.getElementById(item.id); if(dom){{ var c=echarts.init(dom,theme); c.setOption(item.opt); item.inst=c; }} }}); }};
+}})();
 
 // 导航滚动高亮
 (function(){{
@@ -584,9 +584,6 @@ td:first-child, th:first-child {{ text-align:left; }}
   window.addEventListener('scroll',onScroll); onScroll();
   links.forEach(function(a){ a.addEventListener('click',function(e){ e.preventDefault(); var id=a.getAttribute('href').slice(1),el=document.getElementById(id); if(el) el.scrollIntoView({{behavior:'smooth',block:'start'}}); }); });
 }})();
-
-var __charts=[];
-function initChart(id,opt){{ var c=echarts.init(document.getElementById(id),'dark'); c.setOption(opt); window.addEventListener('resize',function(){{c.resize()}}); __charts.push(c); return c; }}
 
 // 1. K线
 initChart('chart-kline',{{tooltip:{{trigger:'axis',axisPointer:{{type:'cross'}},backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}}}},legend:{{data:['K线','MA5','MA20','MA60','成交量'],top:0,textStyle:{{color:'#8892b0'}}}},grid:[{{left:'8%',right:'8%',top:'40px',height:'58%'}},{{left:'8%',right:'8%',top:'75%',height:'15%'}}],xAxis:[{{type:'category',data:{KH_DATES},gridIndex:0,axisLabel:{{color:'#64748b',fontSize:10,rotate:30}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},{{type:'category',data:{KH_DATES},gridIndex:1,axisLabel:{{show:false}},axisLine:{{show:false}}}}],yAxis:[{{type:'value',gridIndex:0,scale:true,splitLine:{{lineStyle:{{color:'#1e293b'}}}},axisLabel:{{color:'#64748b'}}}},{{type:'value',gridIndex:1,splitLine:{{show:false}},axisLabel:{{color:'#64748b'}}}}],dataZoom:[{{type:'inside',xAxisIndex:[0,1],start:{KH_START},end:100}}],series:[{{name:'K线',type:'candlestick',xAxisIndex:0,yAxisIndex:0,data:{KH_PRICES},itemStyle:{{color:'#ef4444',color0:'#22c55e',borderColor:'#ef4444',borderColor0:'#22c55e'}}}},{{name:'MA5',type:'line',xAxisIndex:0,yAxisIndex:0,data:{KH_MA5},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#f59e0b'}}}},{{name:'MA20',type:'line',xAxisIndex:0,yAxisIndex:0,data:{KH_MA20},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#3b82f6'}}}},{{name:'MA60',type:'line',xAxisIndex:0,yAxisIndex:0,data:{KH_MA60},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#8b5cf6'}}}},{{name:'成交量',type:'bar',xAxisIndex:1,yAxisIndex:1,data:{KH_VOLS},itemStyle:{{color:function(p){{return p.data[1]>=0?'#ef444480':'#22c55e80'}}}}}}]}});
@@ -1466,87 +1463,6 @@ def build_report(data_path: str) -> str:
         mf_html = '<div style="padding:30px;text-align:center;color:var(--text3);font-size:14px;">暂无资金流向数据</div>'
         mf_js = ''
 
-    # ── 生成双主题静态图表图片 ──
-    def _both(cid, dark_src, light_src):
-        """生成带双主题切换的HTML片段"""
-        d = dark_src or ''
-        l = light_src or d
-        _imgcache[cid] = (d, l)
-        return d
-    _imgcache = {}
-    img_cache = _imgcache  # alias for template injection
-
-    try:
-        # K-line: convert [o,c,l,h] → [o,h,l,c] for mplfinance
-        if kh_prices:
-            k_dates = [d[:10] for d in kh_dates]
-            k_opens = [p[0] for p in kh_prices]
-            k_closes = [p[1] for p in kh_prices]
-            k_lows = [p[2] for p in kh_prices]
-            k_highs = [p[3] for p in kh_prices]
-            k_vols = [v[1] for v in kh_vols] if kh_vols else []
-            _both('chart-kline',
-                  sc.kline_chart(k_dates, k_opens, k_highs, k_lows, k_closes, k_vols, title=stock_name, theme='dark'),
-                  sc.kline_chart(k_dates, k_opens, k_highs, k_lows, k_closes, k_vols, title=stock_name, theme='light'))
-
-        if fin.get('labels'):
-            _both('chart-revenue',
-                  sc.grouped_bar_chart(fin['labels'], [('营收(亿)', fin['revenue']), ('净利润(亿)', fin['profit'])], title='营收与净利润趋势', theme='dark'),
-                  sc.grouped_bar_chart(fin['labels'], [('营收(亿)', fin['revenue']), ('净利润(亿)', fin['profit'])], title='营收与净利润趋势', theme='light'))
-            _both('chart-margin',
-                  sc.line_chart(fin['labels'], [('毛利率', fin['gross']), ('净利率', fin['net'])], title='利润率趋势', theme='dark'),
-                  sc.line_chart(fin['labels'], [('毛利率', fin['gross']), ('净利率', fin['net'])], title='利润率趋势', theme='light'))
-
-        if val_data.get('dates'):
-            _both('chart-valuation',
-                  sc.dual_axis_chart(val_data['dates'][-120:], [('PE-TTM', val_data['pe'][-120:])], [('PB', val_data['pb'][-120:])], title='PE/PB估值走势', ylabel_left='PE', ylabel_right='PB', theme='dark'),
-                  sc.dual_axis_chart(val_data['dates'][-120:], [('PE-TTM', val_data['pe'][-120:])], [('PB', val_data['pb'][-120:])], title='PE/PB估值走势', ylabel_left='PE', ylabel_right='PB', theme='light'))
-
-        if radar_data.get('indicators'):
-            cats = [i['name'][:4] for i in radar_data['indicators']]
-            vals = [i['max'] for i in radar_data['indicators']]
-            _both('chart-radar',
-                  sc.radar_chart(cats, vals, title='综合评分雷达', theme='dark'),
-                  sc.radar_chart(cats, vals, title='综合评分雷达', theme='light'))
-
-        if rev_breakdown:
-            _both('chart-revenue-bd',
-                  sc.pie_chart(rev_breakdown[:12], title='主营构成', theme='dark'),
-                  sc.pie_chart(rev_breakdown[:12], title='主营构成', theme='light'))
-
-        if forecast_data.get('labels'):
-            _both('chart-forecast',
-                  sc.grouped_bar_chart(forecast_data['labels'], [('营收(亿)', forecast_data['revenue']), ('净利润(亿)', forecast_data['profit'])], title='盈利预测', theme='dark'),
-                  sc.grouped_bar_chart(forecast_data['labels'], [('营收(亿)', forecast_data['revenue']), ('净利润(亿)', forecast_data['profit'])], title='盈利预测', theme='light'))
-
-        if sensitivity_data.get('labels'):
-            _both('chart-sensitivity',
-                  sc.bar_chart(sensitivity_data['labels'], sensitivity_data['values'], title='营收增速 vs 净利率敏感度', theme='dark'),
-                  sc.bar_chart(sensitivity_data['labels'], sensitivity_data['values'], title='营收增速 vs 净利率敏感度', theme='light'))
-
-        if fin_health.get('labels'):
-            _both('chart-fin-health',
-                  sc.dual_axis_chart(fin_health['labels'], [('资产负债率', fin_health['debt'])], [('流动比率', fin_health['ratio'])], title='财务健康度', ylabel_left='%', ylabel_right='倍', theme='dark'),
-                  sc.dual_axis_chart(fin_health['labels'], [('资产负债率', fin_health['debt'])], [('流动比率', fin_health['ratio'])], title='财务健康度', ylabel_left='%', ylabel_right='倍', theme='light'))
-
-        if mf_data.get('dates'):
-            try:
-                _both('chart-moneyflow',
-                      sc.line_chart([d[-5:] for d in mf_data['dates'][-30:]],
-                                   [('主力流入', [v/10000 for v in mf_data['mainForce'][-30:]]),
-                                    ('超大单', [v/10000 for v in mf_data['super'][-30:]]),
-                                    ('大单', [v/10000 for v in mf_data['big'][-30:]])],
-                                   title='资金流向(万元)', theme='dark'),
-                      sc.line_chart([d[-5:] for d in mf_data['dates'][-30:]],
-                                   [('主力流入', [v/10000 for v in mf_data['mainForce'][-30:]]),
-                                    ('超大单', [v/10000 for v in mf_data['super'][-30:]]),
-                                    ('大单', [v/10000 for v in mf_data['big'][-30:]])],
-                                   title='资金流向(万元)', theme='light'))
-            except Exception:
-                pass
-    except Exception as e:
-        print(f'⚠️ 图表渲染异常: {e}')
-
     # ── 填入 _fill 参数 ──
     import re
     def _fill(template: str, **kw) -> str:
@@ -1662,34 +1578,15 @@ def build_report(data_path: str) -> str:
         SHAREHOLDER_ROWS=sh_rows,
         RESEARCH_ITEMS=research_items,
     ))
-    # ── Post-process: replace chart divs with dual-theme <img> tags ──
-    # Build {cid: (dark_src, light_src)} from _imgcache
-    _img_pairs = dict(getattr(build_report, '_last_cache', {}))
-    _img_pairs.update(_imgcache)
-    build_report._last_cache = _imgcache
-
-    # Remove echarts library script references
-    html = re.sub(r'<script[^>]*src="[^"]*echarts[^"]*"[^>]*></script>', '', html)
-    html = re.sub(r'<script[^>]*src="echarts\.min\.js"[^>]*></script>', '', html)
-
-    # Replace each chart div with dual-theme img pair
-    for cid, (dark_src, light_src) in _imgcache.items():
-        if not dark_src and not light_src:
-            continue
-        dark_src = dark_src or light_src or ''
-        light_src = light_src or dark_src or ''
-        img_html = (
-            f'<img src="{dark_src}" class="chart-img theme-dark"'
-            f' style="max-width:100%;height:auto;display:block;border-radius:6px;margin:8px auto;">'
-            f'<img src="{light_src}" class="chart-img theme-light"'
-            f' style="max-width:100%;height:auto;display:none;border-radius:6px;margin:8px auto;">'
-        )
-        html = re.sub(
-            rf'<div[^>]*?id="{re.escape(cid)}"[^>]*?>.*?</div>',
-            img_html, html, flags=re.DOTALL
-        )
-    # Handle cycle gauge
-    html = re.sub(r'<div[^>]*?id="chart-cycle"[^>]*?>.*?</div>', '', html, flags=re.DOTALL) 
+    # ── Inject inline echarts library ──
+    # Load echarts.min.js content into the HTML
+    _echarts_path = '/tmp/echarts.min.js'
+    if os.path.exists(_echarts_path):
+        with open(_echarts_path, 'r') as _ef:
+            _echarts_code = _ef.read()
+        html = html.replace('<!--ECHARTS_INLINE-->', f'<script>{_echarts_code}</script>')
+    else:
+        html = html.replace('<!--ECHARTS_INLINE-->', '')
     return html
 
 
