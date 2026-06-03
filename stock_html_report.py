@@ -19,9 +19,8 @@ Phase 3：HTML 可视化报告生成器（8步框架完整版）
 
 from __future__ import annotations
 
-import re, json, os, sys, argparse, datetime as dt
+import json, os, sys, argparse, datetime as dt
 from typing import Any
-
 
 
 # ════════════════════ HTML 模板（完整版）════════════════════
@@ -32,6 +31,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>个股研究 - {STOCK_NAME}</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.6.0/echarts.min.js"></script>
 <style>
 :root {{
   --bg: #0a0e17; --card: #141b2d; --border: #2a3550;
@@ -170,9 +170,6 @@ body {{
 
 .chart-box {{ width:100%; height:380px; }}
 .chart-box.tall {{ height:460px; }}
-.chart-img {{ max-width:100%; height:auto; border-radius:6px; }}
-body.light .theme-dark {{ display:none !important; }}
-body.light .theme-light {{ display:block !important; }}
 
 /* ── 表格 ── */
 .table-wrap {{ overflow-x:auto; }}
@@ -364,8 +361,17 @@ td:first-child, th:first-child {{ text-align:left; }}
     </div>
   </div>
   <div style="margin-top:14px;">
-    <div style="color:var(--text2);font-size:12px;margin-bottom:6px;">主营构成</div>
-    <div id="chart-revenue-bd" class="chart-box" style="height:240px;"></div>
+    <div style="color:var(--text2);font-size:12px;margin-bottom:8px;">主营构成（最新年报）</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div>
+        <div style="text-align:center;color:var(--text2);font-size:11px;margin-bottom:4px;">📦 产品分类</div>
+        <div id="chart-revenue-product" class="chart-box" style="height:220px;"></div>
+      </div>
+      <div>
+        <div style="text-align:center;color:var(--text2);font-size:11px;margin-bottom:4px;">🌍 地区分布</div>
+        <div id="chart-revenue-region" class="chart-box" style="height:220px;"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -386,21 +392,17 @@ td:first-child, th:first-child {{ text-align:left; }}
       <div style="font-size:13px;margin-top:6px;">{POLICY_DIRECTION}</div>
     </div>
   </div>
-  <div id="chart-cycle" class="chart-box" style="height:200px;margin-top:8px;"></div>
+  <div id="chart-cycle" class="chart-box tall" style="margin-top:8px;"></div>
 </div>
 
 <!-- ════════════════ Step 2: 产业链深度拆解 ════════════════ -->
 <div id="step2" class="section step-s2">
   <h2><span class="step-num">2</span> 产业链深度拆解 <span class="badge purple">价值链分析</span></h2>
   <div class="chain-wrap"><svg class="chain-svg" viewBox="0 0 900 160" width="900" height="160">{CHAIN_SVG}</svg></div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px;">
+  <div style="margin-top:14px;">
     <div class="card">
       <div style="color:var(--down);font-size:11px;font-weight:600;">🏆 竞争格局</div>
       <div style="font-size:13px;margin-top:4px;">{COMPETITION_LANDSCAPE}</div>
-    </div>
-    <div class="card">
-      <div style="color:var(--hl);font-size:11px;font-weight:600;">🎯 核心竞争优势</div>
-      <div style="font-size:13px;margin-top:4px;">{COMPETITIVE_ADVANTAGE}</div>
     </div>
   </div>
 </div>
@@ -493,7 +495,7 @@ td:first-child, th:first-child {{ text-align:left; }}
 <div id="step7" class="section step-s7">
   <h2><span class="step-num">7</span> 对标分析 <span class="badge purple">同行对比</span></h2>
   <div class="table-wrap"><table class="peer-table"><thead>
-    <tr><th>公司</th><th>PE-TTM</th><th>ROE</th><th>毛利率</th><th>净利率</th><th>营收增速</th><th>市值</th><th>增长引擎</th></tr></thead>
+    <tr><th>公司</th><th>PE-TTM</th><th>ROE</th><th>毛利率</th><th>营收增速</th><th>市值</th></tr></thead>
     <tbody>{PEER_ROWS}</tbody></table>
   </div>
   <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
@@ -502,7 +504,7 @@ td:first-child, th:first-child {{ text-align:left; }}
       <div style="font-size:13px;margin-top:4px;">{COMPETITIVE_EDGE}</div>
     </div>
     <div class="card">
-      <div style="color:var(--text2);font-size:11px;font-weight:600;">📈 增长引擎判断</div>
+      <div style="color:var(--text2);font-size:11px;font-weight:600;">📈 增长引擎比较</div>
       <div style="font-size:13px;margin-top:4px;">{GROWTH_ENGINE}</div>
     </div>
   </div>
@@ -528,6 +530,13 @@ td:first-child, th:first-child {{ text-align:left; }}
   </div>
 </div>
 
+<!-- ── K线走势 ── -->
+<div class="section" style="background:var(--card);">
+  <h2>📈 K线走势（1年）</h2>
+  <div class="chart-box tall" id="chart-kline"></div>
+</div>
+
+
 <!-- ── 财务趋势 & 机构数据 ── -->
 <div class="section">
   <h2>📊 财务趋势（辅助数据）</h2>
@@ -549,7 +558,7 @@ td:first-child, th:first-child {{ text-align:left; }}
 
 <div class="section">
   <h2>💰 资金流向</h2>
-  {MONEYFLOW_HTML}
+  <div class="chart-box" id="chart-moneyflow" style="height:260px;"></div>
 </div>
 
 <div class="section">
@@ -564,40 +573,14 @@ td:first-child, th:first-child {{ text-align:left; }}
 </div>
 
 <script>
-(function(){{ {{}}
-  var chartRegistry=[];
-  var tbtn=document.getElementById('themeToggle');
-  var curT=localStorage.getItem('theme')==='light'?'light':'dark';
-  function applyT(l){ document.body.classList.toggle('light',l); tbtn.textContent=l?'☀️':'🌙'; localStorage.setItem('theme',l?'light':'dark'); curT=l?'light':'dark'; }
-  applyT(curT==='light');
-  tbtn.onclick=function(){ var nl=!document.body.classList.contains('light'); applyT(nl); reInitCharts(nl?'light':'dark'); };
-  window.initChart=function(id,opt){ pendingOpts.push({id:id,opt:opt}); return pendingOpts.length; }
-  (function(){
-    try{
-      var code = atob("ECHARTS_B64_PLACEHOLDER");
-      var blob = new Blob([code],{type:'application/javascript'});
-      var url = URL.createObjectURL(blob);
-      var s = document.createElement('script');
-      s.src = url;
-      s.onload = function(){
-        pendingOpts.forEach(function(item){
-          var dom=document.getElementById(item.id);
-          if(dom){
-            try{
-              var c=echarts.init(dom,curT);
-              c.setOption(item.opt);
-              window.addEventListener('resize',function(){c.resize()});
-              chartRegistry.push({id:item.id,opt:item.opt,inst:c});
-            }catch(e){ console.error('chart '+item.id+':',e); }
-          }
-        });
-      };
-      s.onerror = function(){ console.error('echarts blob fail'); };
-      document.body.appendChild(s);
-    }catch(e){ console.error('echarts loader:',e); }
-  })();
-  window.reInitCharts=function(theme){ chartRegistry.forEach(function(item){ try{ item.inst.dispose(); }catch(e){} var dom=document.getElementById(item.id); if(dom){ var c=echarts.init(dom,theme); c.setOption(item.opt); item.inst=c; } }); };
-}})();
+(function(){{ // 主题切换
+  var btn=document.getElementById('themeToggle');
+  var isLight=localStorage.getItem('theme')==='light';
+  function apply(l){ document.body.classList.toggle('light',l); btn.textContent=l?'☀️':'🌙'; localStorage.setItem('theme',l?'light':'dark'); }
+  apply(isLight);
+  btn.onclick=function(){ apply(!document.body.classList.contains('light')); reRenderAll(); };
+  window.reRenderAll=function(){ setTimeout(function(){ document.querySelectorAll('[id^=chart-]').forEach(function(el){ var inst=echarts.getInstanceByDom(el); if(inst) inst.resize(); }); },100); };
+})();
 
 // 导航滚动高亮
 (function(){{
@@ -607,6 +590,9 @@ td:first-child, th:first-child {{ text-align:left; }}
   window.addEventListener('scroll',onScroll); onScroll();
   links.forEach(function(a){ a.addEventListener('click',function(e){ e.preventDefault(); var id=a.getAttribute('href').slice(1),el=document.getElementById(id); if(el) el.scrollIntoView({{behavior:'smooth',block:'start'}}); }); });
 }})();
+
+var __charts=[];
+function initChart(id,opt){{ var el=document.getElementById(id); if(!el) return; opt.backgroundColor='transparent'; var c=echarts.init(el,'dark'); c.setOption(opt); window.addEventListener('resize',function(){{c.resize()}}); __charts.push(c); return c; }}
 
 // 1. K线
 initChart('chart-kline',{{tooltip:{{trigger:'axis',axisPointer:{{type:'cross'}},backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}}}},legend:{{data:['K线','MA5','MA20','MA60','成交量'],top:0,textStyle:{{color:'#8892b0'}}}},grid:[{{left:'8%',right:'8%',top:'40px',height:'58%'}},{{left:'8%',right:'8%',top:'75%',height:'15%'}}],xAxis:[{{type:'category',data:{KH_DATES},gridIndex:0,axisLabel:{{color:'#64748b',fontSize:10,rotate:30}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},{{type:'category',data:{KH_DATES},gridIndex:1,axisLabel:{{show:false}},axisLine:{{show:false}}}}],yAxis:[{{type:'value',gridIndex:0,scale:true,splitLine:{{lineStyle:{{color:'#1e293b'}}}},axisLabel:{{color:'#64748b'}}}},{{type:'value',gridIndex:1,splitLine:{{show:false}},axisLabel:{{color:'#64748b'}}}}],dataZoom:[{{type:'inside',xAxisIndex:[0,1],start:{KH_START},end:100}}],series:[{{name:'K线',type:'candlestick',xAxisIndex:0,yAxisIndex:0,data:{KH_PRICES},itemStyle:{{color:'#ef4444',color0:'#22c55e',borderColor:'#ef4444',borderColor0:'#22c55e'}}}},{{name:'MA5',type:'line',xAxisIndex:0,yAxisIndex:0,data:{KH_MA5},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#f59e0b'}}}},{{name:'MA20',type:'line',xAxisIndex:0,yAxisIndex:0,data:{KH_MA20},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#3b82f6'}}}},{{name:'MA60',type:'line',xAxisIndex:0,yAxisIndex:0,data:{KH_MA60},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#8b5cf6'}}}},{{name:'成交量',type:'bar',xAxisIndex:1,yAxisIndex:1,data:{KH_VOLS},itemStyle:{{color:function(p){{return p.data[1]>=0?'#ef444480':'#22c55e80'}}}}}}]}});
@@ -623,14 +609,18 @@ initChart('chart-valuation',{{tooltip:{{trigger:'axis',backgroundColor:'#1a2338'
 // 5. 雷达图
 initChart('chart-radar',{{tooltip:{{backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}}}},radar:{{indicator:{RADAR_INDICATORS},radius:'60%',axisName:{{color:'#8892b0'}},splitArea:{{areaStyle:{{color:['rgba(59,130,246,0.02)','rgba(59,130,246,0.04)','rgba(59,130,246,0.06)','rgba(59,130,246,0.08)','rgba(59,130,246,0.1)']}}}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},series:[{{type:'radar',data:[{{value:{RADAR_VALUES},name:'质量评分',areaStyle:{{color:'rgba(59,130,246,0.3)'}},lineStyle:{{color:'#3b82f6',width:2}},itemStyle:{{color:'#60a5fa'}}}}]}}]}});
 
-// 6. 主营构成
-initChart('chart-revenue-bd',{{tooltip:{{trigger:'item',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}},formatter:'{{b}}: {{c}}%'}},series:[{{type:'pie',radius:['35%','60%'],center:['50%','55%'],data:{REV_BD_DATA},label:{{color:'#8892b0',formatter:'{{b}}\n{{d}}%'}},labelLine:{{lineStyle:{{color:'#2a3550'}}}},itemStyle:{{borderRadius:6,color:['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#ec4899']}}}}]}});
+// 6a. 主营构成-产品
+initChart('chart-revenue-product',{{tooltip:{{trigger:'item',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}},formatter:'{{b}}: {{c}}%'}},series:[{{type:'pie',radius:['30%','55%'],center:['50%','55%'],data:{REV_PRODUCT_DATA},label:{{color:'#8892b0',formatter:'{{b}}\n{{d}}%'}},labelLine:{{lineStyle:{{color:'#2a3550'}}}},color:['#fb923c','#facc15','#4ade80','#60a5fa','#c084fc','#f472b6'],itemStyle:{borderRadius:6}}}]}});
 
-{MONEYFLOW_JS}
+// 6b. 主营构成-地区
+initChart('chart-revenue-region',{{tooltip:{{trigger:'item',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}},formatter:'{{b}}: {{c}}%'}},series:[{{type:'pie',radius:['30%','55%'],center:['50%','55%'],data:{REV_REGION_DATA},label:{{color:'#8892b0',formatter:'{{b}}\n{{d}}%'}},labelLine:{{lineStyle:{{color:'#2a3550'}}}},color:['#f87171','#60a5fa','#34d399','#fbbf24','#a78bfa','#fb7185'],itemStyle:{borderRadius:6}}}]}});
 
-// 8. 行业周期仪表// 8. 行业周期仪表
+// 7. 资金流向
+initChart('chart-moneyflow',{{tooltip:{{trigger:'axis',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}}}},legend:{{data:['主力净流入','超大单','大单'],textStyle:{{color:'#8892b0'}}}},grid:{{left:'10%',right:'8%',top:'12%',bottom:'14%'}},xAxis:{{type:'category',data:{MF_DATES},axisLabel:{{color:'#64748b',rotate:20}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},yAxis:{{type:'value',name:'净额(万)',nameTextStyle:{{color:'#8892b0'}},splitLine:{{lineStyle:{{color:'#1e293b'}}}},axisLabel:{{color:'#64748b'}}}},series:[{{name:'主力净流入',type:'bar',data:{MF_MAIN},itemStyle:{{color:function(p){{return p.value>=0?'#ef4444':'#22c55e'}}}}}},{{name:'超大单',type:'line',data:{MF_SUPER},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#f59e0b'}}}},{{name:'大单',type:'line',data:{MF_BIG},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#8b5cf6'}}}}]}});
+
+// 8. 行业周期仪表
 var cycleData = {CYCLE_GAUGE};
-initChart('chart-cycle',{{tooltip:{{formatter:'{{b}}: {{c}}%'}},series:[{{type:'gauge',center:['25%','55%'],radius:'70%',startAngle:210,endAngle:-30,min:0,max:100,splitNumber:5,axisLine:{{lineStyle:{{width:14,color:[[0.25,'#22c55e'],[0.5,'#f59e0b'],[0.75,'#f97316'],[1,'#ef4444']]}}}},axisTick:{{lineStyle:{{color:'#475569',width:1}}}},splitLine:{{length:8,lineStyle:{{color:'#475569',width:2}}}},axisLabel:{{color:'#64748b',fontSize:10,distance:20,formatter:function(v){{return v<=25?'早期':v<=50?'成长':v<=75?'成熟':'衰退'}}}},pointer:{{width:4,length:'60%'}},title:{{show:true,offsetCenter:[0,'30%'],fontSize:11,color:'#8892b0'}},detail:{{show:true,offsetCenter:[0,'45%'],fontSize:18,fontWeight:700,color:'#60a5fa',formatter:'{{value}}%'}},data:[{{value:cycleData.industry, name:'行业周期'}}]}},{{type:'gauge',center:['75%','55%'],radius:'70%',startAngle:210,endAngle:-30,min:0,max:100,splitNumber:5,axisLine:{{lineStyle:{{width:14,color:[[0.25,'#22c55e'],[0.5,'#f59e0b'],[0.75,'#f97316'],[1,'#ef4444']]}}}},axisTick:{{lineStyle:{{color:'#475569',width:1}}}},splitLine:{{length:8,lineStyle:{{color:'#475569',width:2}}}},axisLabel:{{color:'#64748b',fontSize:10,distance:20,formatter:function(v){{return v<=25?'低估':v<=50?'合理':v<=75?'偏高':'高估'}}}},pointer:{{width:4,length:'60%'}},title:{{show:true,offsetCenter:[0,'30%'],fontSize:11,color:'#8892b0'}},detail:{{show:true,offsetCenter:[0,'45%'],fontSize:18,fontWeight:700,color:'#f59e0b',formatter:'{{value}}%'}},data:[{{value:cycleData.valuation, name:'估值热度'}}]}}]}});
+initChart('chart-cycle',{{tooltip:{{formatter:'{{b}}: {{c}}%'}},series:[{{type:'gauge',center:['25%','55%'],radius:'65%',startAngle:210,endAngle:-30,min:0,max:100,splitNumber:5,axisLine:{{lineStyle:{{width:16,color:[[0.25,'#22c55e'],[0.5,'#f59e0b'],[0.75,'#f97316'],[1,'#ef4444']]}}}},axisTick:{{lineStyle:{{color:'#475569',width:2}}}},splitLine:{{length:10,lineStyle:{{color:'#475569',width:2}}}},axisLabel:{{color:'#64748b',fontSize:11,distance:18,formatter:function(v){{return v<=25?'早期':v<=50?'成长':v<=75?'成熟':'衰退'}}}},pointer:{{width:6,length:'70%'}},title:{{show:true,offsetCenter:[0,'25%'],fontSize:13,color:'#8892b0'}},detail:{{show:true,offsetCenter:[0,'38%'],fontSize:16,fontWeight:700,color:'#60a5fa',formatter:'{{value}}%'}},data:[{{value:cycleData.industry, name:'行业周期'}}]}},{{type:'gauge',center:['75%','55%'],radius:'65%',startAngle:210,endAngle:-30,min:0,max:100,splitNumber:5,axisLine:{{lineStyle:{{width:16,color:[[0.25,'#22c55e'],[0.5,'#f59e0b'],[0.75,'#f97316'],[1,'#ef4444']]}}}},axisTick:{{lineStyle:{{color:'#475569',width:2}}}},splitLine:{{length:10,lineStyle:{{color:'#475569',width:2}}}},axisLabel:{{color:'#64748b',fontSize:11,distance:18,formatter:function(v){{return v<=25?'低估':v<=50?'合理':v<=75?'偏高':'高估'}}}},pointer:{{width:6,length:'70%'}},title:{{show:true,offsetCenter:[0,'25%'],fontSize:13,color:'#8892b0'}},detail:{{show:true,offsetCenter:[0,'38%'],fontSize:16,fontWeight:700,color:'#f59e0b',formatter:'{{value}}%'}},data:[{{value:cycleData.valuation, name:'估值热度'}}]}}]}});
 
 // 9. 盈利预测
 var fc = {FORECAST_DATA};
@@ -716,7 +706,14 @@ class ReportBuilder:
                 return f"{float(profit[-1].get('totalShare',0))/1e8:.2f}"
             except:
                 pass
-        return "—"
+        # Fallback from THS total shares
+        ths_d = self._get("ths", {}).get("ths_market_data", [])
+        if ths_d:
+            for x in reversed(ths_d):
+                ts = x.get("总股本", 0)
+                if ts:
+                    return f"{float(ts)/1e8:.2f}"
+        return "0"
 
     def float_shares(self):
         bs = self._get("balance_sheet", [])
@@ -733,8 +730,17 @@ class ReportBuilder:
             return "—"
 
     def price(self):
-        v = self.spot.get("最新价", "—")
-        return f"{v:.2f}" if isinstance(v, (int, float)) else str(v)
+        v = self.spot.get("最新价", None)
+        if isinstance(v, (int, float)):
+            return f"{v:.2f}"
+        # Fallback from THS market data
+        ths_d = self._get("ths", {}).get("ths_market_data", [])
+        if ths_d:
+            for x in reversed(ths_d):
+                p = x.get("价格", 0)
+                if p:
+                    return f"{float(p):.2f}"
+        return "0"
 
     def change_pct(self):
         v = self.spot.get("涨跌幅", 0)
@@ -796,46 +802,21 @@ class ReportBuilder:
                 continue
         return {"dates": dates, "pe": pe_vals, "pb": pb_vals}
 
-    @staticmethod
-    def _parse_num(val: Any) -> float:
-        """Parse number string with 亿/万 suffix."""
-        if val is None or val == "" or val == "0" or val == "—":
-            return 0.0
-        s = str(val).strip()
-        if "万亿" in s:
-            return float(s.replace("万亿","")) * 10000
-        if "亿" in s:
-            return float(s.replace("亿",""))
-        if "万" in s:
-            return float(s.replace("万","")) / 10000
-        try:
-            return float(s)
-        except ValueError:
-            return 0.0
-
-    @staticmethod
-    def _parse_pct(val: Any) -> float:
-        """Parse percentage string."""
-        if val is None or val == "" or val == "—":
-            return 0.0
-        try:
-            return float(str(val).replace("%","").strip())
-        except ValueError:
-            return 0.0
-
     def financial_data(self):
         indicator = self._get("fin_bs", {}).get("ak_indicator", []) or self._get("fin_merged", {}).get("ak_indicator", [])
         labels, revs, profits, gross, net_m, debt, cur_r = [], [], [], [], [], [], []
         for row in indicator[-6:]:
             try:
                 labels.append(row.get("报告期","—")[:7])
-                revs.append(self._parse_num(row.get("营业总收入","0")))
-                profits.append(self._parse_num(row.get("净利润","0")))
-                gross.append(self._parse_pct(row.get("销售毛利率","0%")))
-                net_m.append(self._parse_pct(row.get("销售净利率","0%")))
-                debt.append(self._parse_pct(row.get("资产负债率","0%")))
-                cur_r.append(self._parse_num(row.get("流动比率","0")))
-            except Exception:
+                revs.append(float(str(row.get("营业总收入","0")).replace("亿","").strip() or "0"))
+                profits.append(float(str(row.get("净利润","0")).replace("亿","").strip() or "0"))
+                gross.append(float(str(row.get("销售毛利率","0%")).replace("%","").strip() or "0"))
+                net_m.append(float(str(row.get("销售净利率","0%")).replace("%","").strip() or "0"))
+                d = float(str(row.get("资产负债率","0%")).replace("%","").strip() or "0")
+                debt.append(d)
+                r = float(str(row.get("流动比率","0%")).replace("%","").strip() or "0")
+                cur_r.append(r)
+            except:
                 continue
         return {"labels": labels, "revenue": revs, "profit": profits,
                 "gross": gross, "net": net_m, "debt": debt, "ratio": cur_r}
@@ -909,55 +890,62 @@ class ReportBuilder:
             for yr in [2023,2024,2025,2026,2027,2028]:
                 yk = f"预测{yr}（平均）" if yr > 2025 else f"{yr}（实际值）"
                 val = item.get(yk,"—")
-                if "营业收入" == key and "增长" not in key:
-                    rev_map[yr] = val
-                elif "净利润" == key and "增长" not in key:
-                    np_map[yr] = val
+                if "营业收入" in key and "增长" not in key:
+                    rev_map[yr] = self._cv(val)
+                elif "净利润" in key and "增长" not in key:
+                    np_map[yr] = self._cv(val)
                 elif "营业收入增长率" == key:
-                    rev_g[yr] = val
+                    rev_g[yr] = str(val)
                 elif "净利润增长率" == key:
-                    np_g[yr] = val
+                    np_g[yr] = str(val)
         shares = float(self.total_shares())
         cur_price = float(self.spot.get("最新价",0))
         rows = ""
         for yr in [2025,2026,2027]:
             label = f"{yr}E" if yr > 2025 else f"{yr}A"
-            r = rev_map.get(yr,"—")
-            rg = rev_g.get(yr,"—")
-            n = np_map.get(yr,"—")
-            ng = np_g.get(yr,"—")
-            eps = float(n)/shares if isinstance(n,(int,float)) and shares > 0 else None
+            r = rev_map.get(yr, 0)
+            rg = rev_g.get(yr, "—")
+            n = np_map.get(yr, 0)
+            ng = np_g.get(yr, "—")
+            eps = n / shares if shares > 0 else 0
             pe = f"{cur_price/eps:.1f}x" if eps and cur_price else "—"
-            r_str = f"{float(r)/1e8:.2f}亿" if isinstance(r,(int,float)) and abs(r)>1e6 else str(r)
-            n_str = f"{float(n)/1e8:.2f}亿" if isinstance(n,(int,float)) and abs(n)>1e6 else str(n)
+            r_str = f"{r:.2f}亿" if r else "—"
+            n_str = f"{n:.2f}亿" if n else "—"
             e_str = f"{eps:.2f}" if eps else "—"
             rows += f"<tr><td>{label}</td><td>{r_str}</td><td>{rg}</td><td>{n_str}</td><td>{ng}</td><td>{e_str}</td><td>{pe}</td></tr>\n"
         return rows, count
 
     def shareholder_rows(self):
-        top10 = self._get("top10", [])
-        if not top10:
-            top10 = self._get("top10_free", [])
-        if not top10:
-            top10 = self._get("share_hold_change", [])[:10]
+        # Use top10_free which has data; format change with ratio
+        top10 = self._get("top10_free", [])
         rows = ""
+        # Get latest financial report quarter for change date
+        bs = self._get("balance_sheet", [])
+        latest_q = ""
+        for b in bs:
+            rd = str(b.get("报告日",""))
+            if rd and len(rd) >= 6:
+                y, m = rd[:4], rd[4:6]
+                q = f"{y}年{['','1','2','3','4'][int(m)//3]}季度" if m.isdigit() and 1 <= int(m) <= 12 else ""
+                if q:
+                    latest_q = q
+                break
         for i, sh in enumerate(top10[:10], 1):
-            n = str(sh.get("股东名称", sh.get("股东名称/姓名", "—")))[:24]
-            p = sh.get("占总股本持股比例", sh.get("持股比例", sh.get("占总股本比例","—")))
-            ch = sh.get("增减", sh.get("本次变动","—"))
-            if ch and ch not in ("不变","新进","—"):
+            n = str(sh.get("股东名称","—"))[:22]
+            p = sh.get("占总流通股本持股比例", 0)
+            p = f"{float(p):.2f}%"
+            ch_raw = sh.get("增减","—")
+            ch_ratio = sh.get("变动比率")
+            ch = str(ch_raw)
+            if ch_ratio is not None:
                 try:
-                    ch = f"{float(ch):.1f}%"
+                    cr = float(ch_ratio)
+                    ch = f"{ch}{cr:+.2f}%"
                 except:
                     pass
-            if p and p != "—":
-                try:
-                    p = f"{float(p):.2f}"
-                except:
-                    pass
-            rows += f"<tr><td>{i}</td><td>{n}</td><td>{p}%</td><td>{ch}</td></tr>\n"
-        if not rows:
-            rows = "<tr><td colspan=4 style='text-align:center;color:var(--text3)'>暂无数据</td></tr>"
+            if str(ch_raw).lower() not in ("不变","—","none",""):
+                ch += f"({latest_q})"
+            rows += f"<tr><td>{i}</td><td>{n}</td><td>{p}</td><td>{ch}</td></tr>\n"
         return rows
 
     def moneyflow_data(self):
@@ -974,49 +962,38 @@ class ReportBuilder:
             main_f.append(m); super_f.append(s); big_f.append(b)
         return {"dates": dates, "mainForce": main_f, "super": super_f, "big": big_f}
 
-    def revenue_breakdown(self):
+    def _revenue_for_category(self, cat_type, max_items=8):
+        """Get revenue breakdown for a specific category type."""
         zygc = self._get("zygc", [])
         if not zygc:
             return []
-        # Find latest report date
-        latest_date = ""
-        for r in zygc:
-            d = r.get("报告日期", "")
-            if d > latest_date:
-                latest_date = d
-        # Get items for latest date, keep only one per name (first seen)
-        seen, result = set(), []
-        for item in zygc:
-            if item.get("报告日期", "") != latest_date:
-                continue
-            name = item.get("主营構成", item.get("主营构成", ""))
-            if not name or name in seen:
-                continue
-            seen.add(name)
-            if any(kw in name for kw in ("境内","境外","内部","全部地区")):
+        items = [r for r in zygc if r.get("分类类型") == cat_type]
+        if not items:
+            return []
+        dates = set(r["报告日期"] for r in items)
+        latest_date = max(dates) if dates else ""
+        latest = [r for r in items if r["报告日期"] == latest_date]
+        result = []
+        for item in latest:
+            name = item.get("主营构成","")
+            if not name:
                 continue
             try:
                 ratio = float(str(item.get("收入比例","0")).replace("%","")) * 100
+                display = "其他" if "其他" in name else name[:14]
+                result.append({"name": display, "value": round(ratio,1)})
             except:
-                ratio = 0
-            result.append({"name": name[:18], "value": round(ratio, 1)})
-        if result:
-            return result
-        # Fallback: try all items without dedup
-        seen, result = set(), []
-        for item in zygc:
-            if item.get("报告日期", "") != latest_date:
-                continue
-            name = str(item.get("主营構成", item.get("主营构成", "")))
-            if not name or name in seen:
-                continue
-            seen.add(name)
-            try:
-                ratio = float(str(item.get("收入比例","0")).replace("%","")) * 100
-            except:
-                ratio = 0
-            result.append({"name": name[:18], "value": round(ratio, 1)})
+                pass
+        return result[:max_items]
 
+    def revenue_by_product(self):
+        return self._revenue_for_category("按产品分类")
+
+    def revenue_by_region(self):
+        return self._revenue_for_category("按地区分类")
+
+    def revenue_breakdown(self):
+        return self.revenue_by_product()
 
     def scores_and_radar(self):
         metrics = self.key_metrics()
@@ -1084,26 +1061,26 @@ class ReportBuilder:
         sector = self.sector()
         if "半导" in sector or "电子" in sector:
             return '''
-<rect x="60" y="50" width="160" height="60" rx="8" fill="#1a2338" stroke="#2a3550" stroke-width="1"/>
-<text x="140" y="68" text-anchor="middle" fill="#8892b0" font-size="11">上游</text>
-<text x="140" y="86" text-anchor="middle" fill="#e0e4ed" font-size="12">IP/EDA/晶圆代工</text>
-<text x="140" y="100" text-anchor="middle" fill="#475569" font-size="9">高壁垒，国产替代空间</text>
-<text x="228" y="85" fill="#475569" font-size="24">→</text>
-<rect x="250" y="40" width="200" height="80" rx="10" fill="#1e3a5f" stroke="#3b82f6" stroke-width="2"/>
-<text x="350" y="60" text-anchor="middle" fill="#60a5fa" font-size="11">★ 中游（核心）</text>
-<text x="350" y="80" text-anchor="middle" fill="#e0e4ed" font-size="14" font-weight="600">V_NAME</text>
-<text x="350" y="98" text-anchor="middle" fill="#8892b0" font-size="11">芯片设计/模组</text>
-<text x="350" y="112" text-anchor="middle" fill="#475569" font-size="9">毛利率V_GP%</text>
-<text x="458" y="85" fill="#475569" font-size="24">→</text>
-<rect x="480" y="50" width="160" height="60" rx="8" fill="#1a2338" stroke="#2a3550" stroke-width="1"/>
-<text x="560" y="68" text-anchor="middle" fill="#8892b0" font-size="11">下游</text>
-<text x="560" y="86" text-anchor="middle" fill="#e0e4ed" font-size="12">品牌/OEM/运营商</text>
-<text x="560" y="100" text-anchor="middle" fill="#475569" font-size="9">客户集中度V_CUST%</text>'''.replace("V_NAME", name).replace("V_GP", "—").replace("V_CUST", "—")
+<rect x="60" y="50" width="160" height="60" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1"/>
+<text x="140" y="68" text-anchor="middle" fill="var(--text2)" font-size="11">上游</text>
+<text x="140" y="86" text-anchor="middle" fill="var(--text)" font-size="12">IP/EDA/晶圆代工</text>
+<text x="140" y="100" text-anchor="middle" fill="var(--text3)" font-size="9">高壁垒，国产替代空间</text>
+<text x="228" y="85" fill="var(--text3)" font-size="24">→</text>
+<rect x="250" y="40" width="200" height="80" rx="10" fill="color-mix(in srgb, var(--card) 85%, var(--hl))" stroke="var(--hl)" stroke-width="2"/>
+<text x="350" y="60" text-anchor="middle" fill="var(--hl)" font-size="11">★ 中游（核心）</text>
+<text x="350" y="80" text-anchor="middle" fill="var(--text)" font-size="14" font-weight="600">V_NAME</text>
+<text x="350" y="98" text-anchor="middle" fill="var(--text2)" font-size="11">芯片设计/模组</text>
+<text x="350" y="112" text-anchor="middle" fill="var(--text3)" font-size="9">毛利率V_GP%</text>
+<text x="458" y="85" fill="var(--text3)" font-size="24">→</text>
+<rect x="480" y="50" width="160" height="60" rx="8" fill="var(--card)" stroke="var(--border)" stroke-width="1"/>
+<text x="560" y="68" text-anchor="middle" fill="var(--text2)" font-size="11">下游</text>
+<text x="560" y="86" text-anchor="middle" fill="var(--text)" font-size="12">品牌/OEM/运营商</text>
+<text x="560" y="100" text-anchor="middle" fill="var(--text3)" font-size="9">客户集中度V_CUST%</text>'''.replace("V_NAME", name).replace("V_GP", "—").replace("V_CUST", "—")
         return '''
-<rect x="120" y="42" width="220" height="76" rx="10" fill="#1e3a5f" stroke="#3b82f6" stroke-width="2"/>
-<text x="230" y="62" text-anchor="middle" fill="#60a5fa" font-size="11">★ V_NAME</text>
-<text x="230" y="82" text-anchor="middle" fill="#e0e4ed" font-size="13">V_SECTOR</text>
-<text x="230" y="100" text-anchor="middle" fill="#475569" font-size="9">市值V_MC｜PE V_PE｜ROE V_ROE</text>'''.replace("V_NAME", name).replace("V_SECTOR", sector[:20]).replace("V_MC", self.market_cap()).replace("V_PE", f"{self.last_pe_pb()[0]:.0f}x" if self.last_pe_pb()[0] else "—").replace("V_ROE", fmt_pct(self.key_metrics().get("净资产收益率","—")))
+<rect x="120" y="42" width="220" height="76" rx="10" fill="color-mix(in srgb, var(--card) 85%, var(--hl))" stroke="var(--hl)" stroke-width="2"/>
+<text x="230" y="62" text-anchor="middle" fill="var(--hl)" font-size="11">★ V_NAME</text>
+<text x="230" y="82" text-anchor="middle" fill="var(--text)" font-size="13">V_SECTOR</text>
+<text x="230" y="100" text-anchor="middle" fill="var(--text3)" font-size="9">市值V_MC｜PE V_PE｜ROE V_ROE</text>'''.replace("V_NAME", name).replace("V_SECTOR", sector[:20]).replace("V_MC", self.market_cap()).replace("V_PE", f"{self.last_pe_pb()[0]:.0f}x" if self.last_pe_pb()[0] else "—").replace("V_ROE", fmt_pct(self.key_metrics().get("净资产收益率","—")))
 
     def research_items(self, max_n=5):
         r = self._get("research", [])
@@ -1200,7 +1177,12 @@ class ReportBuilder:
                 cur_price = 100
         pe, _ = self.last_pe_pb()
         pe = pe or 30
-        shares = float(self.total_shares()) or 4.0
+        try:
+            shares = float(self.total_shares())
+        except:
+            shares = 4.0
+        if not shares or shares <= 0:
+            shares = 4.0
 
         # 从一致预期获取参考EPS
         ths = self._get("ths", {})
@@ -1230,37 +1212,53 @@ class ReportBuilder:
         s_cons = {"price": round(eps_base*0.8*c_pe,1), "ret": round(eps_base*0.8*c_pe/cur_price*100-100,1), "desc": "业绩miss+估值收缩"}
         return s_opt, s_base, s_cons
 
+    def _cv(self, v):
+        """Convert consensus value string to numeric (already in 亿 units)."""
+        if v is None:
+            return 0
+        s = str(v).replace("亿","").replace("%","").strip()
+        try:
+            return float(s)
+        except:
+            return 0
+
     def forecast_data(self):
         ths = self._get("ths", {})
         forecast = ths.get("ths_forecast", {})
         consensus = forecast.get("consensus", [])
         rev_map, np_map = {}, {}
-        rev_key = next((k for k in ["营业收入(元)","营业收入"]), "营业收入(元)")
-        np_key = next((k for k in ["净利润(元)","净利润"]), "净利润(元)")
         for item in consensus:
             key = item.get("预测指标","")
             for yr in [2023,2024,2025,2026,2027,2028]:
                 yk = f"预测{yr}（平均）" if yr > 2025 else f"{yr}（实际值）"
                 val = item.get(yk)
-                if key in ("营业收入(元)", "营业收入") and "增长" not in key:
-                    rev_map[yr] = val
-                elif key in ("净利润(元)", "净利润") and "增长" not in key:
-                    np_map[yr] = val
+                if "营业收入" in key and "增长" not in key:
+                    rev_map[yr] = self._cv(val)
+                elif "净利润" in key and "增长" not in key:
+                    np_map[yr] = self._cv(val)
         labels, revs, profits = [], [], []
         for yr in [2023,2024,2025,2026,2027]:
             label = f"{yr}E" if yr > 2025 else f"{yr}A"
-            r = rev_map.get(yr)
-            n = np_map.get(yr)
-            if r is not None:
+            r = rev_map.get(yr, 0)
+            n = np_map.get(yr, 0)
+            if r or n:
                 labels.append(label)
-                revs.append(self._parse_num(r))
-                profits.append(self._parse_num(n) if n is not None else 0)
+                revs.append(r)
+                profits.append(n)
         return {"labels": labels, "revenue": revs, "profit": profits}
 
     def sensitivity_data(self):
-        fc = self.forecast_data()
-        # Use the latest forecast year base
-        base = fc["profit"][-1] if fc["profit"] and fc["profit"][-1] > 0 else 5.0
+        ths = self._get("ths", {})
+        forecast = ths.get("ths_forecast", {})
+        consensus = forecast.get("consensus", [])
+        np_2026e = 0
+        for c in consensus:
+            if "净利润" in c.get("预测指标","") and "增长" not in c.get("预测指标",""):
+                raw = c.get("预测2026（平均）")
+                if raw:
+                    np_2026e = self._cv(raw)
+                break
+        base = np_2026e or 15.0
         return {"labels": ["-20%","-10%","基准","+10%","+20%"], "values": [round(base*0.8,2), round(base*0.9,2), round(base,2), round(base*1.1,2), round(base*1.2,2)], "base": round(base,2)}
 
     def fin_health(self):
@@ -1439,7 +1437,8 @@ def build_report(data_path: str) -> str:
     tags_html = rb.tags()
     tags_inline = rb.tags_inline()
     biz_desc = rb.biz_desc()
-    rev_breakdown = rb.revenue_breakdown()
+    rev_by_product = rb.revenue_by_product()
+    rev_by_region = rb.revenue_by_region()
 
     consensus_rows, consensus_count = rb.consensus_table()
     sh_rows = rb.shareholder_rows()
@@ -1474,19 +1473,6 @@ def build_report(data_path: str) -> str:
 
     kh_vols_json = j([[v[0], v[1], 1] for v in kh_vols])  # [date, vol, direction]
 
-    # Moneyflow conditional (must come after j())
-    if mf_data["dates"]:
-        mf_html = '<div class="chart-box" id="chart-moneyflow" style="height:260px;"></div>'
-        mf_dates = j(mf_data["dates"])
-        mf_main = j(mf_data["mainForce"])
-        mf_super = j(mf_data["super"])
-        mf_big = j(mf_data["big"])
-        mf_js = f"// 7. 资金流向\ninitChart('chart-moneyflow',{{tooltip:{{trigger:'axis',backgroundColor:'#1a2338',borderColor:'#2a3550',textStyle:{{color:'#e0e4ed'}}}},legend:{{data:['主力净流入','超大单','大单'],textStyle:{{color:'#8892b0'}}}},grid:{{left:'10%',right:'8%',top:'12%',bottom:'14%'}},xAxis:{{type:'category',data:{mf_dates},axisLabel:{{color:'#64748b',rotate:20}},axisLine:{{lineStyle:{{color:'#2a3550'}}}}}},yAxis:{{type:'value',name:'净额(万)',nameTextStyle:{{color:'#8892b0'}},splitLine:{{lineStyle:{{color:'#1e293b'}}}},axisLabel:{{color:'#64748b'}}}},series:[{{name:'主力净流入',type:'bar',data:{mf_main},itemStyle:{{color:function(p){{return p.value>=0?'#ef4444':'#22c55e'}}}}}},{{name:'超大单',type:'line',data:{mf_super},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#f59e0b'}}}},{{name:'大单',type:'line',data:{mf_big},smooth:true,symbol:'none',lineStyle:{{width:1,color:'#8b5cf6'}}}}]}});\n"
-    else:
-        mf_html = '<div style="padding:30px;text-align:center;color:var(--text3);font-size:14px;">暂无资金流向数据</div>'
-        mf_js = ''
-
-    # ── 填入 _fill 参数 ──
     import re
     def _fill(template: str, **kw) -> str:
         """Replace {PLACEHOLDER} patterns; then convert {{ -> { for CSS/JS."""
@@ -1524,7 +1510,6 @@ def build_report(data_path: str) -> str:
         # Step 2
         CHAIN_SVG=chain_svg,
         COMPETITION_LANDSCAPE=rb._placeholder(),
-        COMPETITIVE_ADVANTAGE=rb._placeholder(),
         # Step 3
         SCORE_ITEMS=score_items, SCORE_TOTAL=str(score_total),
         # Step 4
@@ -1583,11 +1568,14 @@ def build_report(data_path: str) -> str:
         # Radar
         RADAR_INDICATORS=j(radar_data["indicators"]),
         RADAR_VALUES=j(radar_data["values"]),
-        # Revenue breakdown
-        REV_BD_DATA=j(rev_breakdown),
+        # Revenue breakdown (product + region)
+        REV_PRODUCT_DATA=j(rev_by_product),
+        REV_REGION_DATA=j(rev_by_region),
         # Money flow
-        MONEYFLOW_HTML=mf_html,
-        MONEYFLOW_JS=mf_js,
+        MF_DATES=j(mf_data["dates"]),
+        MF_MAIN=j(mf_data["mainForce"]),
+        MF_SUPER=j(mf_data["super"]),
+        MF_BIG=j(mf_data["big"]),
         # Cycle gauge
         CYCLE_GAUGE=j(cycle_gauge),
         # Forecast
@@ -1601,15 +1589,6 @@ def build_report(data_path: str) -> str:
         SHAREHOLDER_ROWS=sh_rows,
         RESEARCH_ITEMS=research_items,
     ))
-    # ── Inject echarts base64 data into Blob loader ──
-    import base64 as _b64mod
-    _epath = '/tmp/echarts.min.js'
-    if os.path.exists(_epath):
-        with open(_epath, 'rb') as _ef:
-            _eb64 = _b64mod.b64encode(_ef.read()).decode()
-        html = html.replace('ECHARTS_B64_PLACEHOLDER', _eb64)
-    else:
-        html = html.replace('ECHARTS_B64_PLACEHOLDER', '')
     return html
 
 
