@@ -331,6 +331,41 @@ python -m pytest tests/
 
 ---
 
+## 📋 更新日志
+
+### 2026-06-03 — HTML报告全面调校（v5.2）
+
+**调整范围：** `stock_html_report.py`（HTML模板）+ `stock_html_inject_md.py`（MD注入）
+**限制：** 未改动MD生成代码(`stock_full_8step.py`)和MD模板
+
+#### ✅ 修复
+- **MD注入级联错位**：S2段删除`COMPETITIVE_ADVANTAGE`二次pop_ph调用，修复竞争优势/增长引擎/复盘计划/综合结论全部错位的根因
+- **S7增长引擎空白**：fallback改为采集bullet list全文
+- **K线走势重复**：删除多余的第二组section
+- **饼图颜色黑色**：itemStyle内color数组→移到series层
+
+#### 🎨 视觉优化
+- **图表底色跟随主题**：`initChart`加`opt.backgroundColor='transparent'` + SVG硬编码颜色全部替换为CSS变量
+- **主营构成拆分为两张饼图**：产品（暖色系）+ 地区（暖玫系），并排展示
+- **饼图颜色亮化**：替换为高饱和度色彩，暗色模式下清晰可辨
+- **宏观时钟缩小**：半径90%→65%，字号22→16
+- **行业周期仪表盘**：半径扩大、配色优化
+
+#### 📊 数据完善
+- **对标分析表**：删除净利率/增长引擎列（MD无对应数据源），改为6列
+- **十大股东变动备注**：追加报告季度（如"(2026年1季度)"）
+- **一致预期/盈利预测/敏感度**：修复key匹配与类型转换bug
+- **十大股东数据源**：从`top10`修正为`top10_free`
+- **营收构成数据**：从年报主营构成提取，区分产品/地区分类
+
+#### 🔧 管线改进
+- 新增`stock_html_inject_md.py`：独立MD→HTML注入脚本，支持双向数值回退
+- `stock_html_report.py`数据鲁棒性：股数回退、spot回退、类型转换保护
+
+#### 🗂 备份
+- Git tag: `backup_20260603_1512`
+- 备份路径：`/root/.openclaw/backup/stock-analysis_20260603_1512/`
+
 ## 📄 许可证
 
 [MIT License](LICENSE)
