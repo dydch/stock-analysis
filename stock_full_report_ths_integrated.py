@@ -450,6 +450,29 @@ def collect(code: str, max_kline_years: int = 3,
         "ba+ths": "baostock+thsdk(无akshare)",
     }
 
+    # ── 缓存层：环境变量 STOCKANALYSIS_USE_CACHE=1 启用 ──
+    cache_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "output", ".cache", f"{code}_{mode}.json"
+    )
+    if os.environ.get("STOCKANALYSIS_USE_CACHE") == "1":
+        os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        if os.path.exists(cache_path):
+            cache_age = time.time() - os.path.getmtime(cache_path)
+            if cache_age < 14400:  # 4小时 = 14400秒
+                try:
+                    with open(cache_path, "r", encoding="utf-8") as f:
+                        cached = json.load(f)
+                    data = StockReportData(
+                        code=code, prefixed=prefixed, bs_code=bs_code,
+                        market=market, data_mode=mode
+                    )
+                    data.blocks = cached.get("blocks", {})
+                    print(f"📦 缓存命中，直接返回（{code}_{mode}，{cache_age/60:.0f} 分钟前保存）")
+                    return data
+                except Exception:
+                    print("  ⚠ 缓存读取失败，重新采集")
+
     print(f"📊 [{mode_label.get(mode, mode)}] 采集 {code}（{prefixed}）")
     print(f"   启用: bs={use_bs} ak={use_ak} ths={use_ths}")
     print(f"   K线年限：{max_kline_years} 年")
@@ -535,6 +558,24 @@ def collect(code: str, max_kline_years: int = 3,
         data.blocks["basic_info_ak"] = [basic_info] if basic_info else []
 
     data.blocks["basic_info"] = [basic_info] if basic_info else []
+
+    # ── 行业归属检测 + fallback ──
+    sector_detected = basic_info.get("行业分类(证监会)", "")
+    if not sector_detected:
+        # Fallback 1: 从 ths 块中查找板块信息（ths块在block1之前已采集）
+        ths_data = data.blocks.get("ths", {})
+        market_data = ths_data.get("ths_market_data", [])
+        if market_data and isinstance(market_data, list):
+            for md in market_data[:3]:
+                ind = str(md.get("板块", "") or md.get("行业", "") or "").strip()
+                if ind:
+                    sector_detected = ind
+                    basic_info["行业分类(证监会)"] = ind
+                    print(f"  ↪ 行业fallback [ths]: {sector_detected}")
+                    break
+    data.blocks["sector_refined"] = sector_detected
+    if basic_info:
+        basic_info["行业分类(证监会)"] = sector_detected
 
     if use_ak:
         df = _safe_call_ak(ak.stock_zh_a_gbjg_em,
@@ -759,6 +800,14 @@ def collect(code: str, max_kline_years: int = 3,
         data.blocks["news"] = _df_to_records(df)
         df = _safe_call_ak(ak.stock_research_report_em, symbol=code, label="研究报告")
         data.blocks["research"] = _df_to_records(df)
+        # 行业fallback: 从研报数据提取
+        if data.blocks.get("sector_refined", "") == "" or not isinstance(data.blocks.get("sector_refined"), str) or not data.blocks["sector_refined"]:
+            for r in data.blocks["research"][:10]:
+                ind = str(r.get("行业", "")).strip()
+                if ind:
+                    data.blocks["sector_refined"] = ind
+                    print(f"  ↪ 行业fallback [research]: {ind}")
+                    break
     else:
         data.blocks["notice"] = []
         data.blocks["news"] = []
@@ -793,6 +842,201 @@ def collect(code: str, max_kline_years: int = 3,
         data.blocks["margin"] = _df_to_records(_filter_by_code(df, code))
     else:
         data.blocks["margin"] = []
+
+    # =============================================================
+    #  [14/17] 行业估值数据库 (sector_pe_db)
+    # =============================================================
+    print("━━━ [14/17] 行业估值数据库 ━━━")
+    sector_pe_db = []
+    try:
+        research_recs = data.blocks.get("research", [])
+        sector_pe_map: dict[str, dict[str, Any]] = {}
+        for r in research_recs:
+            ind = str(r.get("行业", "")).strip()
+            pe_str = str(r.get("2026-盈利预测-市盈率", "") or r.get("市盈率", "") or "").strip()
+            if ind and pe_str:
+                try:
+                    pe_val = float(pe_str.replace("×", "").replace("X", "").replace("倍", "").strip())
+                    if ind not in sector_pe_map:
+                        sector_pe_map[ind] = {"行业": ind, "pe_list": [], "研报数量": 0}
+                    sector_pe_map[ind]["pe_list"].append(pe_val)
+                    sector_pe_map[ind]["研报数量"] += 1
+                except ValueError:
+                    pass
+        for k, v in sector_pe_map.items():
+            pe_list = v["pe_list"]
+            v["平均预测PE"] = round(sum(pe_list) / len(pe_list), 1) if pe_list else None
+            v["中位预测PE"] = sorted(pe_list)[len(pe_list)//2] if pe_list else None
+            del v["pe_list"]
+            sector_pe_db.append(v)
+        print(f"  ✓ 行业估值: {len(sector_pe_db)} 个行业")
+    except Exception as e:
+        print(f"  ✗ 行业估值: {e}")
+    data.blocks["sector_pe_db"] = sector_pe_db
+
+    # =============================================================
+    #  [15/17] 同行可比估值 (peer_valuation)
+    # =============================================================
+    print("━━━ [15/17] 同行可比估值 ━━━")
+    peer_valuation = {"pe_list": [], "pb_list": [], "pe_median": None, "pe_mean": None,
+                      "pb_median": None, "pb_mean": None, "stock_count": 0}
+    try:
+        sector_name = data.blocks.get("sector_refined", "")
+        if sector_name and _has_ak:
+            df_cons = _safe_call_ak(ak.stock_board_industry_cons_em, sector_name,
+                                     label=f"行业成分股({sector_name})")
+            if df_cons is not None and not df_cons.empty:
+                pe_vals = []
+                pb_vals = []
+                for _, row in df_cons.iterrows():
+                    try:
+                        pe = float(str(row.get("市盈率", "0")).replace("--", "0"))
+                        pb = float(str(row.get("市净率", "0")).replace("--", "0"))
+                        if pe > 0:
+                            pe_vals.append(pe)
+                        if pb > 0:
+                            pb_vals.append(pb)
+                    except (ValueError, TypeError):
+                        pass
+                if pe_vals:
+                    sorted_pe = sorted(pe_vals)
+                    peer_valuation["pe_list"] = [round(p, 2) for p in pe_vals[:20]]
+                    peer_valuation["pe_median"] = sorted_pe[len(sorted_pe)//2]
+                    peer_valuation["pe_mean"] = round(sum(pe_vals) / len(pe_vals), 2)
+                if pb_vals:
+                    sorted_pb = sorted(pb_vals)
+                    peer_valuation["pb_list"] = [round(p, 2) for p in pb_vals[:20]]
+                    peer_valuation["pb_median"] = sorted_pb[len(sorted_pb)//2]
+                    peer_valuation["pb_mean"] = round(sum(pb_vals) / len(pb_vals), 2)
+                peer_valuation["stock_count"] = len(df_cons)
+                print(f"  ✓ 同行可比: {len(pe_vals)} 只有效PE, {len(pb_vals)} 只有效PB")
+        else:
+            print(f"  ∴ 跳过 (sector='{sector_name}' or no akshare)")
+    except Exception as e:
+        print(f"  ✗ 同行可比: {e}")
+    data.blocks["peer_valuation"] = peer_valuation
+
+    # =============================================================
+    #  [16/17] 研发投入分析 (rd_expense)
+    # =============================================================
+    print("━━━ [16/17] 研发投入分析 ━━━")
+    rd_expense = {"rd_expense": {}, "rd_ratio": {}}
+    try:
+        # 优先使用已采集的利润表中的研发费用数据
+        income_data = data.blocks.get("income_statement", [])
+        if income_data:
+            for row in income_data:
+                report_date = str(row.get("报告日", "") or "").strip()[:4]
+                rd_val = row.get("研发费用", None)
+                revenue = row.get("营业总收入", None) or row.get("营业收入", None)
+                if not report_date or not rd_val or len(report_date) < 4:
+                    continue
+                try:
+                    rd_f = float(rd_val) / 1e8 if abs(float(rd_val)) > 1e6 else float(rd_val)
+                    rd_expense["rd_expense"][report_date] = f"{rd_f:.3f}亿"
+                    if revenue and float(revenue) != 0:
+                        ratio = float(rd_val) / float(revenue) * 100
+                        rd_expense["rd_ratio"][report_date] = f"{ratio:.2f}%"
+                except (ValueError, TypeError):
+                    pass
+            print(f"  ✓ 研发投入(利润表): {len(rd_expense['rd_expense'])} 期数据")
+        elif _has_ak:
+            # fallback: 通过akshare财务摘要获取
+            df_rd = _safe_call_ak(ak.stock_financial_abstract, symbol=code, label="财务摘要(研发)")
+            if df_rd is not None and not df_rd.empty:
+                rd_rows = df_rd[df_rd["指标"].str.contains("研发", na=False)]
+                if rd_rows.empty:
+                    rd_rows = df_rd[df_rd["指标"].str.contains("费用|支出", na=False)]
+                for _, row in rd_rows.iterrows():
+                    for col in df_rd.columns[2:]:  # 跳过 选项, 指标
+                        report_date = str(col).strip()[:4]
+                        rd_val = row.get(col, None)
+                        if not report_date or not rd_val or len(report_date) < 4:
+                            continue
+                        try:
+                            rd_f = float(rd_val) / 1e8 if abs(float(rd_val)) > 1e6 else float(rd_val)
+                            rd_expense["rd_expense"][report_date] = f"{rd_f:.3f}亿"
+                        except (ValueError, TypeError):
+                            pass
+                print(f"  ✓ 研发投入(akshare): {len(rd_expense['rd_expense'])} 期数据")
+            else:
+                print("  ∴ 跳过 (无可用数据源)")
+        else:
+            print("  ∴ 跳过 (无 akshare 且无利润表数据)")
+    except Exception as e:
+        print(f"  ✗ 研发投入: {e}")
+    data.blocks["rd_expense"] = rd_expense
+
+    # =============================================================
+    #  [17/17] 数据新鲜度看板 (data_freshness)
+    # =============================================================
+    data_sources_used = []
+    if use_bs:
+        data_sources_used.append("BaoStock")
+    if use_ak:
+        data_sources_used.append("akshare")
+    if use_ths:
+        data_sources_used.append("thsdk")
+
+    block_count = sum(1 for v in data.blocks.values() if isinstance(v, (list, dict)) and v)
+
+    data.blocks["data_freshness"] = {
+        "generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "mode": mode,
+        "block_count": block_count,
+        "data_sources_used": data_sources_used,
+        "errors": data.errors.copy() if hasattr(data, "errors") and data.errors else [],
+    }
+
+    # =============================================================
+    #  _meta: 数据新鲜度元数据
+    # =============================================================
+    block_status = {}
+    for bk, bv in data.blocks.items():
+        if isinstance(bv, (list, dict)):
+            block_status[bk] = "有数据" if bv else "空"
+        else:
+            block_status[bk] = "未知"
+
+    data.blocks["_meta"] = {
+        "generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "data_mode": mode,
+        "source_status": {
+            "bs_profit_rows": len(data.blocks.get("fin_bs", {}).get("bs_profit", [])) if isinstance(data.blocks.get("fin_bs"), dict) else 0,
+            "ak_fin_abstract_rows": len(data.blocks.get("fin_merged", {}).get("ak_fin_abstract", [])) if isinstance(data.blocks.get("fin_merged"), dict) else 0,
+            "research_count": len(data.blocks.get("research", [])),
+            "news_count": len(data.blocks.get("news", [])),
+        },
+        "block_status": block_status,
+        "cache_saved": False,
+    }
+
+    # ── 估值引擎集成 ──
+    try:
+        from stock_valuation_engine import ValuationEngine
+        # 构建估值引擎需要的完整dict
+        engine_data = {
+            "blocks": data.blocks,
+            "data_mode": data.data_mode,
+        }
+        ve = ValuationEngine(engine_data)
+        data.blocks["valuation_enhanced"] = ve.full_report()
+        print("  ✓ 估值引擎集成完成")
+    except Exception as e:
+        print(f"  ✗ 估值引擎: {e}")
+        data.blocks["valuation_enhanced"] = {"error": str(e)}
+
+    # ── 缓存保存 ──
+    if os.environ.get("STOCKANALYSIS_USE_CACHE") == "1":
+        try:
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            cache_payload = {"blocks": data.blocks, "data_mode": data.data_mode}
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(cache_payload, f, ensure_ascii=False, default=str)
+            data.blocks["_meta"]["cache_saved"] = True
+            print(f"  ✓ 缓存已保存: {cache_path}")
+        except Exception as e:
+            print(f"  ✗ 缓存保存失败: {e}")
 
     return data
 
